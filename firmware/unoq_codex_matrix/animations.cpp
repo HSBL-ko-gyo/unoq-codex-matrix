@@ -58,6 +58,9 @@ inline void addPixelSaturating(uint8_t frame[kPixelCount], const int16_t x,
                      : static_cast<uint8_t>(combined);
 }
 
+void addIntensityQ8(uint8_t frame[kPixelCount], int16_t x, int16_t y,
+                    uint16_t intensity_q8, uint8_t temporal_phase);
+
 void drawGlyph(uint8_t frame[kPixelCount], const uint16_t rows[kMatrixHeight],
                const uint8_t level) {
   for (uint8_t y = 0; y < kMatrixHeight; ++y) {
@@ -81,19 +84,79 @@ uint8_t pingPongPosition(const uint32_t elapsed_ms, const uint16_t step_ms,
                       : static_cast<uint8_t>(cycle - phase);
 }
 
+struct IdleEnvelope {
+  uint8_t breath_q8;
+  uint8_t halo_q8;
+};
+
+IdleEnvelope idleEnvelope(const uint32_t elapsed_ms) {
+  constexpr uint16_t kHalfBreathMs = kIdleBreathPeriodMs / 2u;
+  constexpr uint16_t kHaloHalfWindowMs = 180;
+  const uint16_t phase =
+      static_cast<uint16_t>(elapsed_ms % kIdleBreathPeriodMs);
+  const uint16_t ramp = phase <= kHalfBreathMs
+                            ? phase
+                            : static_cast<uint16_t>(kIdleBreathPeriodMs - phase);
+  const uint8_t breath_q8 = static_cast<uint8_t>(
+      (static_cast<uint32_t>(ramp) * 255u) / kHalfBreathMs);
+  const uint16_t peak_distance =
+      phase > kHalfBreathMs
+          ? static_cast<uint16_t>(phase - kHalfBreathMs)
+          : static_cast<uint16_t>(kHalfBreathMs - phase);
+  const uint8_t halo_q8 =
+      peak_distance >= kHaloHalfWindowMs
+          ? 0
+          : static_cast<uint8_t>(
+                (static_cast<uint32_t>(kHaloHalfWindowMs - peak_distance) *
+                 255u) /
+                kHaloHalfWindowMs);
+  return {breath_q8, halo_q8};
+}
+
+uint8_t idleFadeOpacity(const uint32_t elapsed_ms) {
+  if (elapsed_ms >= kIdleFadeInMs) {
+    return 255;
+  }
+  return static_cast<uint8_t>(
+      (static_cast<uint32_t>(elapsed_ms) * 255u) / kIdleFadeInMs);
+}
+
 void renderIdle(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
                 const uint8_t brightness) {
-  const uint8_t high = highLevel(brightness);
-  if (high == 0) {
+  const uint8_t configured = highLevel(brightness);
+  if (configured == 0) {
     return;
   }
-  constexpr uint16_t kHalfBreathMs = 1200;
-  const uint16_t phase = static_cast<uint16_t>(elapsed_ms % (2 * kHalfBreathMs));
-  const uint16_t ramp = phase <= kHalfBreathMs ? phase : 2 * kHalfBreathMs - phase;
-  const uint8_t level = static_cast<uint8_t>(
-      1 + (static_cast<uint32_t>(high - 1) * ramp) / kHalfBreathMs);
-  setPixel(frame, 6, 3, level);
-  setPixel(frame, 6, 4, mediumLevel(level));
+  const IdleEnvelope envelope = idleEnvelope(elapsed_ms);
+  const uint8_t ceiling = configured > 2 ? 2 : configured;
+  const uint16_t minimum_q8 = ceiling == 1 ? 128u : 256u;
+  const uint16_t span_q8 = ceiling == 1 ? 128u : 256u;
+  const uint16_t center_q8 = static_cast<uint16_t>(
+      minimum_q8 + (static_cast<uint32_t>(span_q8) * envelope.breath_q8) /
+                       255u);
+  const uint8_t temporal_phase =
+      static_cast<uint8_t>(elapsed_ms / kThinkingFrameIntervalMs);
+
+  // Four quiet core pixels form a soft nucleus rather than an icon. The
+  // fractional levels are temporally dithered by the shared Q8 renderer.
+  addIntensityQ8(frame, 6, 3, center_q8, temporal_phase);
+  addIntensityQ8(frame, 6, 4,
+                 static_cast<uint16_t>((center_q8 * 3u) / 4u),
+                 static_cast<uint8_t>(temporal_phase + 41u));
+  addIntensityQ8(frame, 5, 4,
+                 static_cast<uint16_t>((center_q8 * 5u) / 8u),
+                 static_cast<uint8_t>(temporal_phase + 83u));
+  addIntensityQ8(frame, 7, 4,
+                 static_cast<uint16_t>((center_q8 * 5u) / 8u),
+                 static_cast<uint8_t>(temporal_phase + 127u));
+
+  // Only near the breathing peak, a 360 ms-wide level-one glow reaches the
+  // immediate left and right neighbours and then disappears naturally.
+  const uint16_t halo_q8 = envelope.halo_q8;
+  addIntensityQ8(frame, 5, 3, halo_q8,
+                 static_cast<uint8_t>(temporal_phase + 17u));
+  addIntensityQ8(frame, 7, 3, halo_q8,
+                 static_cast<uint8_t>(temporal_phase + 149u));
 }
 
 struct ThinkingPoint {
@@ -293,7 +356,6 @@ uint32_t mixThinkingBits(uint32_t value) {
 struct Bubble {
   bool active;
   bool spawning;
-  bool popping;
   uint16_t x_q8;
   uint16_t y_q8;
   uint8_t brightness;
@@ -305,10 +367,9 @@ struct Bubble {
   uint32_t signature;
 };
 
-constexpr uint16_t kBubbleCycleMs = 3500;
-constexpr uint16_t kBubblePopWindowMs = 150;
+constexpr uint16_t kBubbleCycleMs = 4200;
 constexpr uint16_t kBubbleSpawnOffsetsMs[kThinkingBubbleCapacity] = {
-    0, 320, 760, 1240, 1790, 2380, 2940,
+    0, 520, 1080, 1690, 2350, 3070, 3720,
 };
 
 Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
@@ -322,16 +383,13 @@ Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
       0xB7E15163u ^ static_cast<uint32_t>(slot) * 0x9E3779B9u ^
       generation * 0x85EBCA6Bu);
   const uint16_t lifetime_ms =
-      static_cast<uint16_t>(2100u + seed % 701u);
+      static_cast<uint16_t>(1950u + seed % 501u);
   const uint16_t fade_in_ms =
-      static_cast<uint16_t>(250u + ((seed >> 5) % 201u));
+      static_cast<uint16_t>(250u + ((seed >> 5) % 151u));
   const uint16_t fade_out_ms =
-      static_cast<uint16_t>(200u + ((seed >> 13) % 201u));
+      static_cast<uint16_t>(200u + ((seed >> 13) % 151u));
   const bool active = age_ms < lifetime_ms;
   const bool spawning = age_ms < fade_in_ms;
-  const bool pop_enabled = ((seed >> 24) & 3u) == 0u;
-  const bool popping = pop_enabled && age_ms >= lifetime_ms &&
-                       age_ms < lifetime_ms + kBubblePopWindowMs;
 
   uint8_t opacity_q8 = 0;
   if (active) {
@@ -354,39 +412,11 @@ Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
       (static_cast<uint32_t>(start_y_q8) * (lifetime_ms - bounded_age)) /
       lifetime_ms);
 
-  const uint16_t wobble_period =
-      static_cast<uint16_t>(900u + ((seed >> 12) % 501u));
-  const uint16_t wobble_position = static_cast<uint16_t>(
-      (age_ms + ((seed >> 18) % wobble_period)) % wobble_period);
-  const uint16_t half_period = static_cast<uint16_t>(wobble_period / 2u);
-  int16_t wobble_q8;
-  if (wobble_position < half_period) {
-    wobble_q8 = static_cast<int16_t>(
-        -160 + (static_cast<uint32_t>(wobble_position) * 320u) /
-                   half_period);
-  } else {
-    const uint16_t second_half =
-        static_cast<uint16_t>(wobble_period - half_period);
-    wobble_q8 = static_cast<int16_t>(
-        160 - (static_cast<uint32_t>(wobble_position - half_period) * 320u) /
-                  second_half);
-  }
-  int16_t x_q8 = static_cast<int16_t>((seed % kMatrixWidth) * 256u) +
-                   wobble_q8;
-  if (x_q8 < 0) {
-    x_q8 = 0;
-  } else if (x_q8 > static_cast<int16_t>((kMatrixWidth - 1) * 256u)) {
-    x_q8 = static_cast<int16_t>((kMatrixWidth - 1) * 256u);
-  }
-
-  uint8_t nominal = 1;
-  if (age_ms >= lifetime_ms / 4u &&
-      age_ms < static_cast<uint16_t>((lifetime_ms * 3u) / 4u)) {
-    nominal = 2;
-    if (seed % 9u == 0u) {
-      nominal = 3;
-    }
-  }
+  // The horizontal coordinate is an integer chosen once per generation. The
+  // only motion is the continuous Q8 rise toward the surface.
+  const uint16_t x_q8 =
+      static_cast<uint16_t>((seed % kMatrixWidth) * 256u);
+  const uint8_t nominal = ((seed >> 24) % 7u) == 0u ? 2u : 1u;
   const uint8_t bubble_brightness =
       highLevel(brightness) < nominal ? highLevel(brightness) : nominal;
   const uint32_t signature =
@@ -395,8 +425,7 @@ Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
                       static_cast<uint32_t>(y_q8) ^ opacity_q8);
   return {active,
           spawning,
-          popping,
-          static_cast<uint16_t>(x_q8),
+          x_q8,
           y_q8,
           bubble_brightness,
           opacity_q8,
@@ -429,20 +458,6 @@ void renderThinkingBubbles(uint8_t frame[kPixelCount],
           frame, bubble.x_q8, bubble.y_q8,
           intensityWithOpacity(bubble.brightness, bubble.opacity_q8),
           static_cast<uint8_t>(frame_phase + slot * 37u));
-    }
-    if (bubble.popping && bubble.brightness != 0) {
-      const uint16_t pop_age =
-          static_cast<uint16_t>(bubble.age_ms - bubble.lifetime_ms);
-      const uint8_t pop_opacity = static_cast<uint8_t>(
-          255u - (static_cast<uint32_t>(pop_age) * 255u) /
-                     kBubblePopWindowMs);
-      const int16_t pop_x = static_cast<int16_t>(bubble.x_q8 >> 8);
-      const uint16_t pop_intensity = intensityWithOpacity(1, pop_opacity);
-      addIntensityQ8(frame, pop_x - 1, 0, pop_intensity, frame_phase);
-      addIntensityQ8(frame, pop_x + 1, 0, pop_intensity,
-                     static_cast<uint8_t>(frame_phase + 71u));
-      addIntensityQ8(frame, pop_x, 1, pop_intensity,
-                     static_cast<uint8_t>(frame_phase + 139u));
     }
   }
 }
@@ -750,9 +765,6 @@ ThinkingDebugSnapshot thinkingDebugSnapshot(const uint32_t elapsed_ms) {
     if (bubbles[slot].spawning) {
       spawn_mask = static_cast<uint8_t>(spawn_mask | bit);
     }
-    if (bubbles[slot].popping) {
-      pop_mask = static_cast<uint8_t>(pop_mask | bit);
-    }
     signature = mixThinkingBits(
         signature ^ bubbles[slot].signature ^
         static_cast<uint32_t>(bubbles[slot].age_ms) << (slot & 7u) ^
@@ -768,12 +780,20 @@ ThinkingDebugSnapshot thinkingDebugSnapshot(const uint32_t elapsed_ms) {
           thinkingFadeOpacity(elapsed_ms),
           thinkingCenterOpacity(phase),
           bubbles[0].opacity_q8,
+          bubbles[0].brightness,
+          bubbles[0].x_q8,
           bubbles[0].y_q8,
           bubbles[0].lifetime_ms,
           bubbles[0].fade_in_ms,
           bubbles[0].fade_out_ms,
           signature,
           phase.reverse};
+}
+
+IdleDebugSnapshot idleDebugSnapshot(const uint32_t elapsed_ms) {
+  const IdleEnvelope envelope = idleEnvelope(elapsed_ms);
+  return {envelope.breath_q8, envelope.halo_q8,
+          idleFadeOpacity(elapsed_ms)};
 }
 
 void addThinkingTestParticle(const uint16_t x_q8, const uint16_t y_q8,
@@ -847,6 +867,10 @@ void renderAnimation(const StateId state, const uint32_t now_ms,
     scaleFrameOpacity(
         frame, thinkingFadeOpacity(elapsed_ms),
         static_cast<uint8_t>(elapsed_ms / kThinkingFrameIntervalMs));
+  } else if (state == IDLE) {
+    scaleFrameOpacity(frame, idleFadeOpacity(elapsed_ms),
+                      static_cast<uint8_t>(elapsed_ms /
+                                           kThinkingFrameIntervalMs));
   }
 }
 
@@ -858,10 +882,14 @@ void renderTransition(const StateId from, const StateId to,
                       const bool show_active_count,
                       uint8_t frame[kPixelCount]) {
   const uint32_t elapsed_ms = now_ms - transition_started_ms;
+  const uint16_t duration_ms = transitionDurationMs(from, to);
   if (!shouldCrossfadeThinkingTransition(from, to) ||
-      elapsed_ms >= kThinkingFadeOutMs) {
-    renderAnimation(to, transition_started_ms, transition_started_ms,
-                    brightness, active_count, show_active_count, frame);
+      elapsed_ms >= duration_ms) {
+    const uint32_t target_now = from == IDLE && to == THINKING
+                                    ? transition_started_ms + duration_ms
+                                    : transition_started_ms;
+    renderAnimation(to, target_now, transition_started_ms, brightness,
+                    active_count, show_active_count, frame);
     return;
   }
 
@@ -869,18 +897,31 @@ void renderTransition(const StateId from, const StateId to,
   uint8_t to_frame[kPixelCount] = {};
   renderAnimation(from, now_ms, from_state_entered_ms, brightness, active_count,
                   show_active_count, from_frame);
-  // Hold the target's first frame while it fades in; the firmware starts its
-  // own animation clock when this bounded transition completes.
-  renderAnimation(to, transition_started_ms, transition_started_ms, brightness,
+  // THINKING advances through its own 420 ms fade while the quiet IDLE core
+  // recedes. Exit transitions hold the target's first frame for 210 ms.
+  const bool entering_thinking = from == IDLE && to == THINKING;
+  const uint32_t target_now = entering_thinking ? now_ms : transition_started_ms;
+  renderAnimation(to, target_now, transition_started_ms, brightness,
                   active_count, show_active_count, to_frame);
   const uint8_t to_opacity = static_cast<uint8_t>(
-      (static_cast<uint32_t>(elapsed_ms) * 255u) / kThinkingFadeOutMs);
+      (static_cast<uint32_t>(elapsed_ms) * 255u) / duration_ms);
   const uint8_t from_opacity = static_cast<uint8_t>(255u - to_opacity);
   for (uint16_t index = 0; index < kPixelCount; ++index) {
-    const uint16_t blended = static_cast<uint16_t>(
-        static_cast<uint16_t>(from_frame[index]) * from_opacity +
-        static_cast<uint16_t>(to_frame[index]) * to_opacity);
-    frame[index] = static_cast<uint8_t>((blended + 127u) / 255u);
+    const uint16_t from_level = static_cast<uint16_t>(
+        (static_cast<uint16_t>(from_frame[index]) * from_opacity + 127u) /
+        255u);
+    const uint16_t target_level = entering_thinking
+                                      ? to_frame[index]
+                                      : static_cast<uint16_t>(
+                                            (static_cast<uint16_t>(
+                                                 to_frame[index]) *
+                                                 to_opacity +
+                                             127u) /
+                                            255u);
+    const uint16_t combined = from_level + target_level;
+    frame[index] = combined > kMaxBrightness
+                       ? kMaxBrightness
+                       : static_cast<uint8_t>(combined);
   }
 }
 

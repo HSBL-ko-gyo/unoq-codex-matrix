@@ -7,9 +7,10 @@ All notable changes are documented here.
 - Smoothed THINKING with a 35 ms render cadence while preserving the 4.2 s
   logical lap, Q8 path and bubble coordinates, bilinear 3-bit intensity
   distribution, continuous trail decay, and temporally dithered residuals.
-- Added a 420 ms whole-state fade-in, per-bubble 250-450 ms fade-in and
-  200-400 ms fade-out, a bounded center envelope, and a 210 ms crossfade from
-  THINKING to SUCCESS or IDLE while urgent states remain immediate.
+- Added a 420 ms whole-state fade-in, per-bubble 250-400 ms fade-in and
+  200-350 ms fade-out, a bounded center envelope, and bounded transitions
+  between IDLE, THINKING, SUCCESS, and IDLE while urgent states remain
+  immediate.
 - Added an MCU render-metrics RPC and measured the renderer plus matrix draw at
   82 us average and 158 us maximum during the 35 ms hardware animation.
 - Expanded the sanitizer-backed renderer test to 200,000 frames with explicit
@@ -18,9 +19,11 @@ All notable changes are documented here.
 - Expanded THINKING to a 52-point edge-to-edge infinity trajectory with a
   state-specific level-5 comet, four-sample tail, sparse moving residuals, and
   a clearer but restrained center-crossing response.
-- Added an independent fixed-capacity ambient bubble field with deterministic
-  320-590 ms spawning, slow rise and lateral wobble, breathing grayscale,
-  one-frame surface pops, and saturating layer collisions.
+- Simplified the ambient bubble field to fixed integer x coordinates, smooth
+  Q8 vertical rises, 480-720 ms spawning, constant level-one or level-two
+  brightness, fade-only lifecycles, and saturating layer collisions.
+- Replaced the two-pixel IDLE indicator with a four-pixel, 3.2-second breathing
+  nucleus, a restrained 360 ms peak halo, and a 210 ms fade-in.
 - Increased only THINKING to a 70 ms refresh, reduced reversal frequency to
   one lap per ten-lap cycle, and retained deterministic integer-only timing.
 - Extended the GCC 14 `-Werror` sanitizer host test past 100,000 THINKING

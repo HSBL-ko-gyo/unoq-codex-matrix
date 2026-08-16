@@ -89,12 +89,19 @@ void enterState(const StateId state, const uint32_t now_ms) {
 }
 
 void finishTransitionIfDue(const uint32_t now_ms) {
+  const uint16_t duration_ms =
+      transitionDurationMs(transition_from_state, displayed_state);
   if (!transition_active ||
-      now_ms - transition_started_ms < kThinkingFadeOutMs) {
+      now_ms - transition_started_ms < duration_ms) {
     return;
   }
   transition_active = false;
-  state_entered_ms = now_ms;
+  // IDLE -> THINKING already advanced the THINKING animation clock throughout
+  // its 420 ms fade. Exit transitions intentionally start their target now.
+  state_entered_ms = transition_from_state == IDLE &&
+                             displayed_state == THINKING
+                         ? transition_started_ms
+                         : now_ms;
   last_frame_ms = now_ms - currentFrameIntervalMs();
 }
 

@@ -87,9 +87,10 @@ void assertThinkingRenderer() {
   bool center_reacts = false;
   bool saw_spawn = false;
   bool saw_disappear = false;
-  bool saw_pop = false;
   uint8_t minimum_bubbles = kThinkingBubbleCapacity;
   uint8_t maximum_bubbles = 0;
+  uint32_t bubble_count_total = 0;
+  uint32_t bubble_count_samples = 0;
   std::array<uint16_t, 2> previous_head = {
       thinkingDebugSnapshot(kThinkingFadeInMs).head_x_q8,
       thinkingDebugSnapshot(kThinkingFadeInMs).head_y_q8};
@@ -131,11 +132,33 @@ void assertThinkingRenderer() {
   assert(bubble_mid_fade.bubble0_opacity_q8 > 0);
   assert(bubble_mid_fade.bubble0_opacity_q8 < 255);
   assert(bubble_active.bubble0_opacity_q8 == 255);
+  assert(fade_0.bubble0_x_q8 == bubble_mid_fade.bubble0_x_q8);
+  assert(fade_0.bubble0_x_q8 == bubble_active.bubble0_x_q8);
+  assert((fade_0.bubble0_x_q8 & 0xFFu) == 0);
+  assert(fade_0.bubble0_brightness >= 1);
+  assert(fade_0.bubble0_brightness <= 2);
   assert(bubble_active.bubble0_y_q8 < fade_0.bubble0_y_q8);
   assert(bubble_fading_out.bubble0_opacity_q8 > 0);
   assert(bubble_fading_out.bubble0_opacity_q8 < 255);
   assert(bubble_gone.bubble0_opacity_q8 == 0);
   assert((bubble_gone.active_mask & 1u) == 0);
+
+  // During a complete slot-zero lifetime, x never changes and y rises
+  // monotonically (decreasing matrix row) with Q8 intermediate positions.
+  uint16_t previous_bubble_y = fade_0.bubble0_y_q8;
+  bool saw_fractional_bubble_y = false;
+  for (uint32_t elapsed = 1; elapsed < fade_0.bubble0_lifetime_ms;
+       elapsed += 17) {
+    const ThinkingDebugSnapshot debug = thinkingDebugSnapshot(elapsed);
+    assert(debug.bubble0_x_q8 == fade_0.bubble0_x_q8);
+    assert(debug.bubble0_y_q8 <= previous_bubble_y);
+    assert(debug.bubble0_brightness == fade_0.bubble0_brightness);
+    assert(debug.bubble0_brightness <= 2);
+    saw_fractional_bubble_y =
+        saw_fractional_bubble_y || (debug.bubble0_y_q8 & 0xFFu) != 0;
+    previous_bubble_y = debug.bubble0_y_q8;
+  }
+  assert(saw_fractional_bubble_y);
 
   // Exercise 200,000 frames (almost two hours at 35 ms/frame), beginning
   // close to millis() rollover. Guard bytes make every out-of-bounds write a
@@ -160,8 +183,10 @@ void assertThinkingRenderer() {
     maximum_bubbles =
         debug.active_bubbles > maximum_bubbles ? debug.active_bubbles
                                                 : maximum_bubbles;
+    bubble_count_total += debug.active_bubbles;
+    ++bubble_count_samples;
     saw_spawn = saw_spawn || debug.spawn_mask != 0;
-    saw_pop = saw_pop || debug.pop_mask != 0;
+    assert(debug.pop_mask == 0);
 
     uint8_t lit = 0;
     for (uint8_t y = 0; y < kMatrixHeight; ++y) {
@@ -175,7 +200,7 @@ void assertThinkingRenderer() {
       }
     }
     // The frame remains sparse and calm even with the independent ambience.
-    assert(lit >= 5);
+    assert(lit >= 3);
     assert(lit <= 45);
     assert(frameEnergy(frame) >= 8);
 
@@ -201,12 +226,16 @@ void assertThinkingRenderer() {
   }
   assert(reaches_left && reaches_right && reaches_top && reaches_bottom);
   assert(center_reacts);
-  assert(saw_spawn && saw_pop);
-  assert(minimum_bubbles <= 3);
-  assert(maximum_bubbles >= 6);
+  assert(saw_spawn);
+  assert(minimum_bubbles >= 2);
+  assert(maximum_bubbles <= 5);
+  const uint32_t average_bubbles_x100 =
+      (bubble_count_total * 100u) / bubble_count_samples;
+  assert(average_bubbles_x100 >= 300u);
+  assert(average_bubbles_x100 <= 400u);
 
   // Scan at 1 ms resolution to prove fixed-capacity lifecycle transitions,
-  // 320-590 ms aggregate spawn jitter, and at least one surface pop.
+  // 400-800 ms aggregate spawn jitter, and the absence of any surface pop.
   uint8_t previous_active_mask = thinkingDebugSnapshot(0).active_mask;
   uint8_t previous_spawn_mask = 0;
   uint32_t previous_spawn_ms = 0;
@@ -222,7 +251,7 @@ void assertThinkingRenderer() {
         previous_active_mask & static_cast<uint8_t>(~debug.active_mask));
     saw_birth = saw_birth || born != 0;
     saw_disappear = saw_disappear || gone != 0;
-    saw_pop = saw_pop || debug.pop_mask != 0;
+    assert(debug.pop_mask == 0);
 
     const uint8_t spawn_edge = static_cast<uint8_t>(
         debug.spawn_mask & static_cast<uint8_t>(~previous_spawn_mask));
@@ -239,9 +268,9 @@ void assertThinkingRenderer() {
     previous_active_mask = debug.active_mask;
     previous_spawn_mask = debug.spawn_mask;
   }
-  assert(saw_birth && saw_disappear && saw_pop);
-  assert(minimum_spawn_gap >= 300);
-  assert(maximum_spawn_gap <= 600);
+  assert(saw_birth && saw_disappear);
+  assert(minimum_spawn_gap >= 400);
+  assert(maximum_spawn_gap <= 800);
 
   // Direction changes pause on the same endpoint for one bounded step, then
   // retrace smoothly. There is no discontinuity at either reversal boundary.
@@ -329,10 +358,76 @@ void assertThinkingRenderer() {
   assert(effectiveFrameIntervalMs(READING, 100) == 100);
 }
 
+void assertIdleRenderer() {
+  const IdleDebugSnapshot start = idleDebugSnapshot(0);
+  const IdleDebugSnapshot quarter = idleDebugSnapshot(800);
+  const IdleDebugSnapshot peak = idleDebugSnapshot(1600);
+  const IdleDebugSnapshot three_quarters = idleDebugSnapshot(2400);
+  const IdleDebugSnapshot wrapped = idleDebugSnapshot(kIdleBreathPeriodMs);
+  assert(start.breath_q8 == 0);
+  assert(start.halo_q8 == 0);
+  assert(start.fade_opacity_q8 == 0);
+  assert(quarter.breath_q8 > start.breath_q8);
+  assert(peak.breath_q8 == 255);
+  assert(peak.halo_q8 == 255);
+  assert(three_quarters.breath_q8 == quarter.breath_q8);
+  assert(wrapped.breath_q8 == start.breath_q8);
+  assert(idleDebugSnapshot(kIdleFadeInMs).fade_opacity_q8 == 255);
+
+  bool saw_quiet_phase = false;
+  bool saw_peak_halo = false;
+  for (uint32_t elapsed = 0; elapsed < 10u * kIdleBreathPeriodMs;
+       elapsed += kThinkingFrameIntervalMs) {
+    const GuardedFrame frame = renderFrame(IDLE, elapsed, 0, 7);
+    assertGuardsAndLevels(frame, IDLE, 2);
+    uint8_t lit = 0;
+    for (uint16_t index = 1; index <= kPixelCount; ++index) {
+      assert(frame[index] <= 2);
+      lit = static_cast<uint8_t>(lit + (frame[index] != 0 ? 1 : 0));
+    }
+    if (elapsed >= kIdleFadeInMs &&
+        idleDebugSnapshot(elapsed).halo_q8 == 0) {
+      saw_quiet_phase = saw_quiet_phase || (lit >= 3 && lit <= 4);
+    }
+    if (idleDebugSnapshot(elapsed).halo_q8 > 220) {
+      saw_peak_halo = saw_peak_halo || lit >= 5;
+    }
+  }
+  assert(saw_quiet_phase);
+  assert(saw_peak_halo);
+
+  // The small nucleus recedes while THINKING completes its existing 420 ms
+  // fade. The endpoint is a fully advanced THINKING frame, not a restart.
+  const GuardedFrame idle_to_thinking_start =
+      renderTransitionFrame(IDLE, THINKING, 5000, 0, 5000, 3);
+  const GuardedFrame idle_before_transition = renderFrame(IDLE, 5000, 0, 3);
+  const GuardedFrame idle_to_thinking_middle =
+      renderTransitionFrame(IDLE, THINKING, 5210, 0, 5000, 3);
+  const GuardedFrame idle_to_thinking_end =
+      renderTransitionFrame(IDLE, THINKING, 5420, 0, 5000, 3);
+  const GuardedFrame thinking_faded_in = renderFrame(THINKING, 5420, 5000, 3);
+  assert(idle_to_thinking_start == idle_before_transition);
+  assert(idle_to_thinking_middle != idle_to_thinking_start);
+  assert(idle_to_thinking_middle != idle_to_thinking_end);
+  assert(idle_to_thinking_end == thinking_faded_in);
+  assert(shouldCrossfadeThinkingTransition(IDLE, THINKING));
+  assert(transitionDurationMs(IDLE, THINKING) == kThinkingFadeInMs);
+
+  // THINKING still reaches SUCCESS through the 210 ms crossfade; a later
+  // IDLE state then emerges over its own bounded 210 ms fade-in.
+  const GuardedFrame success =
+      renderTransitionFrame(THINKING, SUCCESS, 8210, 0, 8000, 3);
+  assert(success == renderFrame(SUCCESS, 8000, 8000, 3));
+  assert(frameEnergy(renderFrame(IDLE, 9000, 9000, 3)) == 0);
+  assert(frameEnergy(renderFrame(IDLE, 9210, 9000, 3)) > 0);
+  assert(transitionDurationMs(THINKING, SUCCESS) == kThinkingFadeOutMs);
+}
+
 }  // namespace
 
 int main() {
   assertThinkingRenderer();
+  assertIdleRenderer();
 
   // Exercise every state, every 3-bit input level, active-count edge values,
   // and a 30-minute-equivalent animation timeline without wall-clock waiting.
