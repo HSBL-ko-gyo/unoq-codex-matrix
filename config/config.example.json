@@ -1,0 +1,11 @@
+{
+  "brightness": 3,
+  "frame_interval_ms": 100,
+  "heartbeat_interval_s": 3,
+  "offline_timeout_s": 12,
+  "success_hold_s": 8,
+  "transient_error_s": 1.5,
+  "stale_session_s": 43200,
+  "show_active_count": true,
+  "log_level": "INFO"
+}
