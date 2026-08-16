@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unoq-codex-matrix"
+version = "0.1.0a1"
+description = "Show live OpenAI Codex activity on the Arduino UNO Q onboard 8x13 LED matrix."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "HSBL-ko-gyo" }]
+keywords = ["arduino", "codex", "led-matrix", "stm32", "rpc"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Monitoring",
+]
+dependencies = ["msgpack>=1.0,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+unoq-codex-matrix-hook = "unoq_codex_matrix.hook:main"
+unoq-codex-matrixd = "unoq_codex_matrix.daemon:main"
+unoq-codex-matrix = "unoq_codex_matrix.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/HSBL-ko-gyo/unoq-codex-matrix"
+Issues = "https://github.com/HSBL-ko-gyo/unoq-codex-matrix/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
