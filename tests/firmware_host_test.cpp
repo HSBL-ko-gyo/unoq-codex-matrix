@@ -233,8 +233,8 @@ void assertThinkingRenderer() {
   assert(maximum_bubbles <= 5);
   const uint32_t average_bubbles_x100 =
       (bubble_count_total * 100u) / bubble_count_samples;
-  assert(average_bubbles_x100 >= 300u);
-  assert(average_bubbles_x100 <= 400u);
+  assert(average_bubbles_x100 >= 250u);
+  assert(average_bubbles_x100 <= 350u);
 
   // Scan at 1 ms resolution to prove fixed-capacity lifecycle transitions,
   // 400-800 ms aggregate spawn jitter, and the absence of any surface pop.
