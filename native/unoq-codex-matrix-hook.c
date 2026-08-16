@@ -1022,6 +1022,13 @@ static int best_effort_oversized_stop(const unsigned char *data, size_t length) 
     return 0;
 }
 
+static void write_stop_reply(void) {
+    /* Consume the fortified-libc return value while deliberately remaining
+     * fail-open on a closed or otherwise unavailable capture pipe. */
+    ssize_t written = write(STDOUT_FILENO, "{}", 2);
+    if (written < 0) return;
+}
+
 int main(void) {
     static unsigned char input[INPUT_LIMIT + 2];
     size_t length = 0;
@@ -1067,7 +1074,7 @@ int main(void) {
     }
     if (length > INPUT_LIMIT) oversized = 1;
     if (oversized) {
-        if (best_effort_oversized_stop(input, length)) (void)write(STDOUT_FILENO, "{}", 2);
+        if (best_effort_oversized_stop(input, length)) write_stop_reply();
         return 0;
     }
     if (!parse_document(input, length, &root) || root.type != JV_OBJECT) return 0;
@@ -1077,7 +1084,7 @@ int main(void) {
                     event_text, sizeof(event_text))) return 0;
     event = map_event(event_text);
     if (event == NULL) return 0;
-    if (event->stop_reply) (void)write(STDOUT_FILENO, "{}", 2);
+    if (event->stop_reply) write_stop_reply();
 
     session_present = object_find_alias(input, length, &root, session_keys, 5, &session_value);
     turn_present = object_find_alias(input, length, &root, turn_keys, 3, &turn_value);

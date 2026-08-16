@@ -222,4 +222,7 @@ def test_daemon_retries_after_temporary_router_failure(tmp_path: Path) -> None:
     assert daemon._publish() is True
     assert bridge.published == [(int(State.IDLE), 0)]
     assert daemon.last_mcu_status == McuStatus(1, int(State.IDLE), 0, 3)
+    # FakeBridge uses the process clock; align it with the daemon's injected
+    # clock before checking age-based status.
+    bridge.last_success_monotonic = now[0]
     assert daemon._status()["router_status"] == "connected"
