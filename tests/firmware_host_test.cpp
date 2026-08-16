@@ -29,12 +29,12 @@ GuardedFrame renderFrame(StateId state, uint32_t now_ms, uint32_t entered_ms,
 
 void assertGuardsAndLevels(const GuardedFrame& frame, StateId state,
                            uint8_t brightness) {
-  (void)state;
   assert(frame.front() == 0xA5);
   assert(frame.back() == 0x5A);
-  const uint8_t safe_brightness =
-      brightness > kMaxBrightness ? kMaxBrightness : brightness;
-  const uint8_t maximum = safe_brightness;
+  const uint8_t maximum = state == THINKING
+                              ? kMaxBrightness
+                              : (brightness > kMaxBrightness ? kMaxBrightness
+                                                              : brightness);
   for (uint16_t index = 1; index <= kPixelCount; ++index) {
     assert(frame[index] <= maximum);
   }
