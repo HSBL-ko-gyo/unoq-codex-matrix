@@ -105,7 +105,7 @@ sudo ./scripts/install.sh --no-start
 |---:|---|---|---|
 | 0 | OFF | CLI override | 完全消灯 |
 | 1 | IDLE | SessionStart、SUCCESS期限切れ | 中央の低輝度breathing dot |
-| 2 | THINKING | prompt送信、tool完了、compact | 可変長の残光を持つ主光点が画面全体の∞形軌道を周回し、暗い副光点と控えめな中央発火を伴う |
+| 2 | THINKING | prompt送信、tool完了、compact | 明るいコメットと疎な残光が52点の全画面∞軌道を70 ms/frameで周回し、独立した低輝度の上昇bubble fieldと控えめな中央発火を伴う |
 | 3 | READING | read、grep、glob、search | 縦の走査線 |
 | 4 | WRITING | `apply_patch`、Edit、Write | 蛇行する筆記cursorと軌跡 |
 | 5 | COMMAND | その他のshell/tool | 右へ進む矢印pulse |

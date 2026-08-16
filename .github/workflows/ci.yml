@@ -46,8 +46,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Host-test firmware renderer bounds and wraparound
         run: |
-          c++ -std=c++17 -Wall -Wextra -Wpedantic \
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
             -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DUNOQ_CODEX_MATRIX_HOST_TEST \
             -Ifirmware/unoq_codex_matrix \
             tests/firmware_host_test.cpp \
             firmware/unoq_codex_matrix/animations.cpp \

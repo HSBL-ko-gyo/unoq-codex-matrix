@@ -62,7 +62,8 @@ void enterState(const StateId state, const uint32_t now_ms) {
   displayed_state = state;
   state_entered_ms = now_ms;
   // Force the first frame of a new state on this loop iteration.
-  last_frame_ms = now_ms - frame_interval_ms;
+  last_frame_ms =
+      now_ms - effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
 }
 
 void applyPendingUpdates(const uint32_t now_ms) {
@@ -90,7 +91,8 @@ void applyPendingUpdates(const uint32_t now_ms) {
   if (pending.has_brightness) {
     brightness = pending.brightness;
     pending.has_brightness = false;
-    last_frame_ms = now_ms - frame_interval_ms;
+    last_frame_ms =
+        now_ms - effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
   }
 
   if (pending.has_heartbeat) {
@@ -215,7 +217,9 @@ void loop() {
 
   // Unsigned subtraction is intentionally used throughout so millis() wrap is
   // handled correctly.
-  if (now_ms - last_frame_ms >= frame_interval_ms) {
+  const uint16_t effective_frame_interval_ms =
+      effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+  if (now_ms - last_frame_ms >= effective_frame_interval_ms) {
     last_frame_ms = now_ms;
     renderAnimation(displayed_state, now_ms, state_entered_ms, brightness,
                     active_count, show_active_count, frame);

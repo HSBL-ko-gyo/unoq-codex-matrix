@@ -44,6 +44,20 @@ inline void setPixel(uint8_t frame[kPixelCount], const int16_t x,
   }
 }
 
+inline void addPixelSaturating(uint8_t frame[kPixelCount], const int16_t x,
+                               const int16_t y, const uint8_t level) {
+  if (x < 0 || x >= kMatrixWidth || y < 0 || y >= kMatrixHeight) {
+    return;
+  }
+  const uint16_t index = static_cast<uint16_t>(y) * kMatrixWidth +
+                         static_cast<uint16_t>(x);
+  const uint16_t combined =
+      static_cast<uint16_t>(frame[index]) + highLevel(level);
+  frame[index] = combined > kMaxBrightness
+                     ? kMaxBrightness
+                     : static_cast<uint8_t>(combined);
+}
+
 void drawGlyph(uint8_t frame[kPixelCount], const uint16_t rows[kMatrixHeight],
                const uint8_t level) {
   for (uint8_t y = 0; y < kMatrixHeight; ++y) {
@@ -87,26 +101,27 @@ struct ThinkingPoint {
   int8_t y;
 };
 
-// A discretized Bernoulli-style lemniscate. Consecutive entries are always
-// 8-neighbours and consecutive duplicates were removed, so the bright head
-// never jumps or stalls. Only particles sample these points; the path is never
-// drawn as an outline.
+// A full-canvas discretized lemniscate. Consecutive entries are 8-neighbours,
+// with no consecutive duplicates, so the comet never jumps or stalls. The two
+// centre crossings intentionally share physical pixels half a lap apart.
 constexpr ThinkingPoint kThinkingPath[kThinkingPathPointCount] = {
-    {6, 4}, {6, 3}, {7, 3}, {7, 2}, {8, 2}, {8, 1},
-    {9, 1}, {10, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 5},
-    {10, 6}, {9, 6}, {8, 6}, {8, 5}, {7, 5}, {7, 4},
-    {6, 4}, {6, 3}, {5, 3}, {5, 2}, {4, 2}, {4, 1},
-    {3, 1}, {2, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 5},
-    {2, 6}, {3, 6}, {4, 6}, {4, 5}, {5, 5}, {5, 4},
+    {6, 4},  {6, 3},  {5, 3},  {5, 2},  {4, 2},  {4, 1},
+    {3, 1},  {3, 0},  {2, 0},  {1, 0},  {1, 1},  {0, 1},
+    {0, 2},  {0, 3},  {0, 4},  {0, 5},  {0, 6},  {1, 6},
+    {1, 7},  {2, 7},  {3, 7},  {3, 6},  {4, 6},  {4, 5},
+    {5, 5},  {5, 4},  {6, 4},  {6, 3},  {7, 3},  {7, 2},
+    {8, 2},  {8, 1},  {9, 1},  {9, 0},  {10, 0}, {11, 0},
+    {11, 1}, {12, 1}, {12, 2}, {12, 3}, {12, 4}, {12, 5},
+    {12, 6}, {11, 6}, {11, 7}, {10, 7}, {9, 7},  {9, 6},
+    {8, 6},  {8, 5},  {7, 5},  {7, 4},
 };
 
-// A deterministic +/-5% velocity drift prevents a metronomic feel while
-// retaining a constant lap duration and inexpensive integer-only lookup.
+// An integer-only velocity ripple keeps motion calm but avoids a metronome.
 constexpr uint8_t kThinkingStepDurationMs[kThinkingPathPointCount] = {
-    104, 102, 100, 102, 104, 106, 108, 110, 108,
-    106, 104, 102, 100, 102, 104, 106, 108, 110,
-    108, 106, 104, 102, 100, 102, 104, 106, 108,
-    110, 108, 106, 104, 102, 100, 102, 104, 106,
+    81, 79, 77, 79, 81, 83, 85, 83, 81, 79, 81, 79, 77,
+    79, 81, 83, 85, 83, 81, 79, 81, 79, 77, 79, 81, 83,
+    85, 83, 81, 79, 81, 79, 77, 79, 81, 83, 85, 83, 81,
+    79, 81, 79, 77, 79, 81, 83, 85, 83, 81, 79, 81, 79,
 };
 
 constexpr uint16_t thinkingStepDurationTotal() {
@@ -168,11 +183,12 @@ ThinkingPhase thinkingPhase(const uint32_t elapsed_ms) {
           fraction, reverse};
 }
 
-void setThinkingPathPixel(uint8_t frame[kPixelCount], const int16_t travel_step,
-                          const bool reverse, const uint8_t level) {
+void addThinkingPathPixel(uint8_t frame[kPixelCount],
+                          const int16_t travel_step, const bool reverse,
+                          const uint8_t level) {
   const ThinkingPoint point =
       kThinkingPath[thinkingPathIndex(travel_step, reverse)];
-  setPixel(frame, point.x, point.y, level);
+  addPixelSaturating(frame, point.x, point.y, level);
 }
 
 uint8_t circularThinkingDistance(const uint8_t from, const uint8_t to) {
@@ -181,6 +197,140 @@ uint8_t circularThinkingDistance(const uint8_t from, const uint8_t to) {
   const uint8_t wrapped =
       static_cast<uint8_t>(kThinkingPathPointCount - direct);
   return direct < wrapped ? direct : wrapped;
+}
+
+uint8_t thinkingPeakLevel(const uint8_t brightness) {
+  const uint8_t configured = highLevel(brightness);
+  if (configured == 0) {
+    return 0;
+  }
+  const uint8_t lifted = static_cast<uint8_t>(configured + 2u);
+  return lifted > 6 ? 6 : lifted;
+}
+
+uint8_t thinkingLevel(const uint8_t brightness, const uint8_t nominal_level) {
+  const uint8_t peak = thinkingPeakLevel(brightness);
+  if (peak == 0 || nominal_level == 0) {
+    return 0;
+  }
+  const uint8_t scaled = static_cast<uint8_t>(
+      (static_cast<uint16_t>(peak) * nominal_level + 3u) / 7u);
+  return scaled == 0 ? 1 : scaled;
+}
+
+uint32_t mixThinkingBits(uint32_t value) {
+  value ^= value >> 16;
+  value *= 0x7FEB352Du;
+  value ^= value >> 15;
+  value *= 0x846CA68Bu;
+  value ^= value >> 16;
+  return value;
+}
+
+struct Bubble {
+  bool active;
+  bool spawning;
+  bool popping;
+  int8_t x;
+  int8_t y;
+  int8_t drift;
+  uint8_t brightness;
+  uint16_t age_ms;
+  uint16_t lifetime_ms;
+  uint32_t signature;
+};
+
+constexpr uint16_t kBubbleCycleMs = 3500;
+constexpr uint16_t kBubblePopWindowMs = kThinkingFrameIntervalMs;
+constexpr uint16_t kBubbleSpawnOffsetsMs[kThinkingBubbleCapacity] = {
+    0, 320, 760, 1240, 1790, 2380, 2940,
+};
+
+Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
+                      const uint8_t brightness) {
+  const uint16_t spawn_offset = kBubbleSpawnOffsetsMs[slot];
+  const uint32_t shifted =
+      elapsed_ms + static_cast<uint32_t>(kBubbleCycleMs - spawn_offset);
+  const uint32_t generation = shifted / kBubbleCycleMs;
+  const uint16_t age_ms = static_cast<uint16_t>(shifted % kBubbleCycleMs);
+  const uint32_t seed = mixThinkingBits(
+      0xB7E15163u ^ static_cast<uint32_t>(slot) * 0x9E3779B9u ^
+      generation * 0x85EBCA6Bu);
+  const uint16_t lifetime_ms =
+      static_cast<uint16_t>(2100u + seed % 701u);
+  const bool active = age_ms < lifetime_ms;
+  const bool spawning = age_ms < kThinkingFrameIntervalMs;
+  const bool pop_enabled = ((seed >> 24) & 3u) == 0u;
+  const bool popping = pop_enabled && age_ms >= lifetime_ms &&
+                       age_ms < lifetime_ms + kBubblePopWindowMs;
+
+  const int8_t start_y = static_cast<int8_t>(6 + ((seed >> 8) & 1u));
+  uint8_t rise = static_cast<uint8_t>(
+      (static_cast<uint32_t>(age_ms) *
+       static_cast<uint8_t>(start_y + 1)) /
+      lifetime_ms);
+  if (rise > static_cast<uint8_t>(start_y)) {
+    rise = static_cast<uint8_t>(start_y);
+  }
+  const int8_t y = static_cast<int8_t>(start_y - rise);
+
+  const uint16_t wobble_period =
+      static_cast<uint16_t>(280u + ((seed >> 12) % 140u));
+  const uint8_t wobble_phase = static_cast<uint8_t>(
+      (age_ms / wobble_period + ((seed >> 18) & 7u)) % 6u);
+  const int8_t drift = wobble_phase == 2 ? 1 : (wobble_phase == 5 ? -1 : 0);
+  const int8_t base_x = static_cast<int8_t>(seed % kMatrixWidth);
+  int8_t x = static_cast<int8_t>(base_x + drift);
+  if (x < 0) {
+    x = 0;
+  } else if (x >= kMatrixWidth) {
+    x = kMatrixWidth - 1;
+  }
+
+  uint8_t nominal = 1;
+  if (age_ms >= lifetime_ms / 4u &&
+      age_ms < static_cast<uint16_t>((lifetime_ms * 3u) / 4u)) {
+    nominal = 2;
+    if (seed % 9u == 0u) {
+      nominal = 3;
+    }
+  }
+  const uint8_t bubble_brightness =
+      highLevel(brightness) < nominal ? highLevel(brightness) : nominal;
+  const uint32_t signature =
+      mixThinkingBits(seed ^ static_cast<uint32_t>(age_ms) * 0x27D4EB2Du ^
+                      static_cast<uint32_t>(static_cast<uint8_t>(x)) << 8 ^
+                      static_cast<uint32_t>(static_cast<uint8_t>(y)));
+  return {active,         spawning, popping, x,     y,
+          drift,          bubble_brightness, age_ms, lifetime_ms,
+          signature};
+}
+
+void populateThinkingBubbles(Bubble bubbles[kThinkingBubbleCapacity],
+                             const uint32_t elapsed_ms,
+                             const uint8_t brightness) {
+  for (uint8_t slot = 0; slot < kThinkingBubbleCapacity; ++slot) {
+    bubbles[slot] = thinkingBubble(slot, elapsed_ms, brightness);
+  }
+}
+
+void renderThinkingBubbles(uint8_t frame[kPixelCount],
+                           const uint32_t elapsed_ms,
+                           const uint8_t brightness) {
+  Bubble bubbles[kThinkingBubbleCapacity] = {};
+  populateThinkingBubbles(bubbles, elapsed_ms, brightness);
+  for (uint8_t slot = 0; slot < kThinkingBubbleCapacity; ++slot) {
+    const Bubble& bubble = bubbles[slot];
+    if (bubble.active) {
+      addPixelSaturating(frame, bubble.x, bubble.y, bubble.brightness);
+    }
+    if (bubble.popping && bubble.brightness != 0) {
+      // A one-frame surface fizz: three dim neighbours, never an explosion.
+      addPixelSaturating(frame, bubble.x - 1, 0, 1);
+      addPixelSaturating(frame, bubble.x + 1, 0, 1);
+      addPixelSaturating(frame, bubble.x, 1, 1);
+    }
+  }
 }
 
 void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
@@ -192,36 +342,45 @@ void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
   const ThinkingPhase phase = thinkingPhase(elapsed_ms);
   const ThinkingPoint head = kThinkingPath[phase.path_index];
 
-  // The tail opens through the fast centre crossing and curls more tightly at
-  // the outer lobes. This avoids a rigid four-pixel comet.
-  const bool near_crossing = head.x >= 4 && head.x <= 8;
-  const uint8_t trail_1 = near_crossing ? 2 : 1;
-  const uint8_t trail_2 = near_crossing ? 5 : 3;
-  const uint8_t trail_3 = near_crossing ? 9 : 6;
-  setThinkingPathPixel(frame, phase.travel_step - trail_3, phase.reverse,
-                       scaledLevel(brightness, 1));
-  setThinkingPathPixel(frame, phase.travel_step - trail_2, phase.reverse,
-                       scaledLevel(brightness, 3));
-  setThinkingPathPixel(frame, phase.travel_step - trail_1, phase.reverse,
-                       scaledLevel(brightness, 5));
-  setPixel(frame, head.x, head.y, scaledLevel(brightness, 7));
+  // The independent ambient layer is intentionally slower and dimmer than
+  // the comet. Collisions later add and saturate, creating a brief organic
+  // brightening without any collision bookkeeping.
+  renderThinkingBubbles(frame, elapsed_ms, brightness);
 
-  // A dim leading interpolation point appears only near the end of a step,
-  // softening the 8x13 grid without any floating-point work.
+  // Four visible tail samples open through the crossing and tighten around
+  // each lobe. At production brightness 3 these resolve to 4/2/1/1 behind a
+  // level-5 head.
+  const bool near_crossing = head.x >= 4 && head.x <= 8;
+  const uint8_t trail_1 = 1;
+  const uint8_t trail_2 = 2;
+  const uint8_t trail_3 = near_crossing ? 4 : 3;
+  const uint8_t trail_4 = near_crossing ? 7 : 5;
+  addThinkingPathPixel(frame, phase.travel_step - trail_4, phase.reverse,
+                       thinkingLevel(brightness, 1));
+  addThinkingPathPixel(frame, phase.travel_step - trail_3, phase.reverse,
+                       thinkingLevel(brightness, 2));
+  addThinkingPathPixel(frame, phase.travel_step - trail_2, phase.reverse,
+                       thinkingLevel(brightness, 3));
+  addThinkingPathPixel(frame, phase.travel_step - trail_1, phase.reverse,
+                       thinkingLevel(brightness, 6));
+  addPixelSaturating(frame, head.x, head.y, thinkingLevel(brightness, 7));
+
+  // A dim leading interpolation point softens the discrete grid.
   if (phase.step_fraction >= 6) {
-    setThinkingPathPixel(frame, phase.travel_step + 1, phase.reverse,
-                         scaledLevel(brightness, 2));
+    addThinkingPathPixel(frame, phase.travel_step + 1, phase.reverse,
+                         thinkingLevel(brightness, 1));
   }
 
-  // Two low-energy particles orbit out of phase. Their offset drifts by two
-  // path points across the direction cycle, producing a slow organic change.
-  const uint8_t phase_drift =
-      phase.lap_modulo <= 2 ? phase.lap_modulo
-                            : static_cast<uint8_t>(5 - phase.lap_modulo);
-  setThinkingPathPixel(frame, phase.travel_step + 12 + phase_drift,
-                       phase.reverse, scaledLevel(brightness, 2));
-  setThinkingPathPixel(frame, phase.travel_step + 25 - phase_drift,
-                       phase.reverse, scaledLevel(brightness, 1));
+  // Sparse residual samples persist within the recent 15 path points. They
+  // travel with the comet, so a viewer reconstructs both lobes over 1-2 s,
+  // while the infinity outline is never statically illuminated.
+  const uint8_t residual_shift = static_cast<uint8_t>(phase.lap_modulo & 1u);
+  addThinkingPathPixel(frame, phase.travel_step - 9 - residual_shift,
+                       phase.reverse, thinkingLevel(brightness, 1));
+  addThinkingPathPixel(frame, phase.travel_step - 12, phase.reverse,
+                       thinkingLevel(brightness, 1));
+  addThinkingPathPixel(frame, phase.travel_step - 15 + residual_shift,
+                       phase.reverse, thinkingLevel(brightness, 1));
 
   // At either physical crossing, a restrained centre pulse briefly excites
   // nearby pixels and immediately decays. The pulse alternates slightly in
@@ -234,17 +393,16 @@ void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
     crossing_distance = second_crossing;
   }
   if (crossing_distance == 0) {
-    const uint8_t spark_nominal = (phase.lap_modulo & 1u) == 0 ? 4 : 3;
-    setPixel(frame, 6, 3, scaledLevel(brightness, spark_nominal));
+    setPixel(frame, 6, 3, thinkingLevel(brightness, 7));
+    setPixel(frame, 6, 4, thinkingLevel(brightness, 6));
+    setPixel(frame, 5, 3, thinkingLevel(brightness, 2));
+    setPixel(frame, 7, 4, thinkingLevel(brightness, 2));
   } else if (crossing_distance == 1) {
-    setPixel(frame, 6, 4, scaledLevel(brightness, 3));
-    setPixel(frame, 5, 3, scaledLevel(brightness, 1));
-    setPixel(frame, 7, 4, scaledLevel(brightness, 1));
-  } else if (crossing_distance == 2) {
-    setPixel(frame, 5, 3, scaledLevel(brightness, 1));
-    setPixel(frame, 7, 3, scaledLevel(brightness, 1));
-    setPixel(frame, 5, 4, scaledLevel(brightness, 1));
-    setPixel(frame, 7, 4, scaledLevel(brightness, 1));
+    setPixel(frame, 6, 4, thinkingLevel(brightness, 6));
+    setPixel(frame, 5, 3, thinkingLevel(brightness, 2));
+    setPixel(frame, 7, 3, thinkingLevel(brightness, 1));
+    setPixel(frame, 5, 4, thinkingLevel(brightness, 1));
+    setPixel(frame, 7, 4, thinkingLevel(brightness, 2));
   }
 }
 
@@ -400,6 +558,43 @@ void addActiveCount(uint8_t frame[kPixelCount], const uint8_t active_count,
 }
 
 }  // namespace
+
+#if defined(UNOQ_CODEX_MATRIX_HOST_TEST)
+ThinkingDebugSnapshot thinkingDebugSnapshot(const uint32_t elapsed_ms) {
+  const ThinkingPhase phase = thinkingPhase(elapsed_ms);
+  const ThinkingPoint head = kThinkingPath[phase.path_index];
+  Bubble bubbles[kThinkingBubbleCapacity] = {};
+  populateThinkingBubbles(bubbles, elapsed_ms, kMaxBrightness);
+
+  uint8_t active_bubbles = 0;
+  uint8_t active_mask = 0;
+  uint8_t spawn_mask = 0;
+  uint8_t pop_mask = 0;
+  uint32_t signature = 0x243F6A88u;
+  for (uint8_t slot = 0; slot < kThinkingBubbleCapacity; ++slot) {
+    const uint8_t bit = static_cast<uint8_t>(1u << slot);
+    if (bubbles[slot].active) {
+      ++active_bubbles;
+      active_mask = static_cast<uint8_t>(active_mask | bit);
+    }
+    if (bubbles[slot].spawning) {
+      spawn_mask = static_cast<uint8_t>(spawn_mask | bit);
+    }
+    if (bubbles[slot].popping) {
+      pop_mask = static_cast<uint8_t>(pop_mask | bit);
+    }
+    signature = mixThinkingBits(
+        signature ^ bubbles[slot].signature ^
+        static_cast<uint32_t>(bubbles[slot].age_ms) << (slot & 7u) ^
+        static_cast<uint32_t>(bubbles[slot].lifetime_ms) ^
+        static_cast<uint32_t>(static_cast<int16_t>(bubbles[slot].drift) + 1)
+            << (slot + 8u));
+  }
+  return {static_cast<uint8_t>(head.x), static_cast<uint8_t>(head.y),
+          active_bubbles, active_mask, spawn_mask, pop_mask, signature,
+          phase.reverse};
+}
+#endif
 
 void renderAnimation(const StateId state, const uint32_t now_ms,
                      const uint32_t state_entered_ms, const uint8_t brightness,

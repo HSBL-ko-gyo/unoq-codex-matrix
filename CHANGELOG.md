@@ -4,13 +4,17 @@ All notable changes are documented here.
 
 ## [Unreleased]
 
-- Replaced the simple THINKING ping-pong dot with a sparse, full-matrix
-  infinity-shaped particle trajectory, variable grayscale trail, secondary
-  particles, subtle center-crossing response, deterministic speed drift, and
-  periodic direction reversal.
-- Extended the sanitizer-backed firmware host test to exercise 100,000
-  THINKING frames across bounds, brightness, millis rollover, and reversal
-  continuity.
+- Expanded THINKING to a 52-point edge-to-edge infinity trajectory with a
+  state-specific level-5 comet, four-sample tail, sparse moving residuals, and
+  a clearer but restrained center-crossing response.
+- Added an independent fixed-capacity ambient bubble field with deterministic
+  320-590 ms spawning, slow rise and lateral wobble, breathing grayscale,
+  one-frame surface pops, and saturating layer collisions.
+- Increased only THINKING to a 70 ms refresh, reduced reversal frequency to
+  one lap per ten-lap cycle, and retained deterministic integer-only timing.
+- Extended the GCC 14 `-Werror` sanitizer host test past 100,000 THINKING
+  frames to cover bubble capacity and lifecycle, spawn cadence, surface pops,
+  saturation, bounds, zero brightness, millis rollover, and reversal.
 
 ## [0.1.0-alpha.1] - 2026-08-16
 

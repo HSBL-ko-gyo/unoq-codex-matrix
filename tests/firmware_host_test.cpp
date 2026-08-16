@@ -27,10 +27,14 @@ GuardedFrame renderFrame(StateId state, uint32_t now_ms, uint32_t entered_ms,
   return frame;
 }
 
-void assertGuardsAndLevels(const GuardedFrame& frame, uint8_t brightness) {
+void assertGuardsAndLevels(const GuardedFrame& frame, StateId state,
+                           uint8_t brightness) {
   assert(frame.front() == 0xA5);
   assert(frame.back() == 0x5A);
-  const uint8_t maximum = brightness > kMaxBrightness ? kMaxBrightness : brightness;
+  const uint8_t maximum = state == THINKING
+                              ? kMaxBrightness
+                              : (brightness > kMaxBrightness ? kMaxBrightness
+                                                              : brightness);
   for (uint16_t index = 1; index <= kPixelCount; ++index) {
     assert(frame[index] <= maximum);
   }
@@ -41,29 +45,12 @@ void renderChecked(StateId state, uint32_t now_ms, uint32_t entered_ms,
                    bool show_active_count) {
   const GuardedFrame frame = renderFrame(state, now_ms, entered_ms, brightness,
                                          active_count, show_active_count);
-  assertGuardsAndLevels(frame, brightness);
+  assertGuardsAndLevels(frame, state, brightness);
   if (brightness == 0 || state == OFF) {
     for (uint16_t index = 1; index <= kPixelCount; ++index) {
       assert(frame[index] == 0);
     }
   }
-}
-
-std::array<uint8_t, 2> thinkingHead(const GuardedFrame& frame) {
-  uint8_t count = 0;
-  std::array<uint8_t, 2> coordinate = {0, 0};
-  for (uint8_t y = 0; y < kMatrixHeight; ++y) {
-    for (uint8_t x = 0; x < kMatrixWidth; ++x) {
-      if (frame[1 + static_cast<uint16_t>(y) * kMatrixWidth + x] ==
-          kMaxBrightness) {
-        coordinate = {x, y};
-        ++count;
-      }
-    }
-  }
-  // At normal maximum brightness only the travelling head reaches level 5.
-  assert(count == 1);
-  return coordinate;
 }
 
 void assertThinkingRenderer() {
@@ -72,39 +59,66 @@ void assertThinkingRenderer() {
   bool reaches_top = false;
   bool reaches_bottom = false;
   bool center_reacts = false;
+  bool saw_saturation = false;
+  bool saw_spawn = false;
+  bool saw_disappear = false;
+  bool saw_pop = false;
+  uint8_t minimum_bubbles = kThinkingBubbleCapacity;
+  uint8_t maximum_bubbles = 0;
   std::array<uint8_t, 2> previous_head = {6, 4};
 
-  // Exercise 100,000 frames (nearly three hours at 100 ms/frame), beginning
+  // Exercise 100,000 frames (nearly two hours at 70 ms/frame), beginning
   // close to millis() rollover. Guard bytes make every out-of-bounds write a
   // deterministic test failure under both native and sanitizer builds.
   constexpr uint32_t kEntered =
       std::numeric_limits<uint32_t>::max() - 5000U;
   for (uint32_t sample = 0; sample < 100000U; ++sample) {
-    const uint32_t now = kEntered + sample * 100U;
-    const GuardedFrame frame = renderFrame(THINKING, now, kEntered, 5);
-    assertGuardsAndLevels(frame, 5);
+    const uint32_t elapsed = sample * kThinkingFrameIntervalMs;
+    const uint32_t now = kEntered + elapsed;
+    const GuardedFrame frame = renderFrame(THINKING, now, kEntered, 3);
+    assertGuardsAndLevels(frame, THINKING, 3);
+    const ThinkingDebugSnapshot debug = thinkingDebugSnapshot(elapsed);
+    assert(debug.head_x < kMatrixWidth);
+    assert(debug.head_y < kMatrixHeight);
+    assert(debug.active_bubbles <= kThinkingBubbleCapacity);
+    minimum_bubbles =
+        debug.active_bubbles < minimum_bubbles ? debug.active_bubbles
+                                                : minimum_bubbles;
+    maximum_bubbles =
+        debug.active_bubbles > maximum_bubbles ? debug.active_bubbles
+                                                : maximum_bubbles;
+    saw_spawn = saw_spawn || debug.spawn_mask != 0;
+    saw_pop = saw_pop || debug.pop_mask != 0;
 
     uint8_t lit = 0;
+    uint8_t comet_bright_pixels = 0;
     for (uint8_t y = 0; y < kMatrixHeight; ++y) {
       for (uint8_t x = 0; x < kMatrixWidth; ++x) {
         const uint8_t level =
             frame[1 + static_cast<uint16_t>(y) * kMatrixWidth + x];
+        saw_saturation = saw_saturation || level == kMaxBrightness;
         if (level == 0) {
           continue;
         }
         ++lit;
-        reaches_left = reaches_left || x <= 1;
-        reaches_right = reaches_right || x >= 11;
-        reaches_top = reaches_top || y <= 1;
-        reaches_bottom = reaches_bottom || y >= 6;
+        if (level >= 4) {
+          ++comet_bright_pixels;
+        }
       }
     }
-    // The trajectory must remain sparse: particles move on an infinity path,
-    // but the infinity outline itself is never rendered.
-    assert(lit >= 4);
-    assert(lit <= 12);
+    // The frame remains sparse and calm even with the independent ambience.
+    assert(lit >= 7);
+    assert(lit <= 28);
+    assert(comet_bright_pixels >= 2);
 
-    const std::array<uint8_t, 2> head = thinkingHead(frame);
+    const uint16_t head_index =
+        1 + static_cast<uint16_t>(debug.head_y) * kMatrixWidth + debug.head_x;
+    assert(frame[head_index] >= 5);
+    const std::array<uint8_t, 2> head = {debug.head_x, debug.head_y};
+    reaches_left = reaches_left || debug.head_x == 0;
+    reaches_right = reaches_right || debug.head_x == kMatrixWidth - 1;
+    reaches_top = reaches_top || debug.head_y == 0;
+    reaches_bottom = reaches_bottom || debug.head_y == kMatrixHeight - 1;
     const uint8_t dx = head[0] > previous_head[0]
                            ? static_cast<uint8_t>(head[0] - previous_head[0])
                            : static_cast<uint8_t>(previous_head[0] - head[0]);
@@ -122,24 +136,82 @@ void assertThinkingRenderer() {
   }
   assert(reaches_left && reaches_right && reaches_top && reaches_bottom);
   assert(center_reacts);
+  assert(saw_saturation);
+  assert(saw_spawn && saw_pop);
+  assert(minimum_bubbles <= 3);
+  assert(maximum_bubbles >= 6);
+
+  // Scan at 1 ms resolution to prove fixed-capacity lifecycle transitions,
+  // 320-590 ms aggregate spawn jitter, and at least one surface pop.
+  uint8_t previous_active_mask = thinkingDebugSnapshot(0).active_mask;
+  uint8_t previous_spawn_mask = 0;
+  uint32_t previous_spawn_ms = 0;
+  bool have_previous_spawn = false;
+  bool saw_birth = false;
+  uint16_t minimum_spawn_gap = 1000;
+  uint16_t maximum_spawn_gap = 0;
+  for (uint32_t elapsed = 0; elapsed < 20000; ++elapsed) {
+    const ThinkingDebugSnapshot debug = thinkingDebugSnapshot(elapsed);
+    const uint8_t born = static_cast<uint8_t>(
+        debug.active_mask & static_cast<uint8_t>(~previous_active_mask));
+    const uint8_t gone = static_cast<uint8_t>(
+        previous_active_mask & static_cast<uint8_t>(~debug.active_mask));
+    saw_birth = saw_birth || born != 0;
+    saw_disappear = saw_disappear || gone != 0;
+    saw_pop = saw_pop || debug.pop_mask != 0;
+
+    const uint8_t spawn_edge = static_cast<uint8_t>(
+        debug.spawn_mask & static_cast<uint8_t>(~previous_spawn_mask));
+    if (spawn_edge != 0) {
+      if (have_previous_spawn) {
+        const uint16_t gap =
+            static_cast<uint16_t>(elapsed - previous_spawn_ms);
+        minimum_spawn_gap = gap < minimum_spawn_gap ? gap : minimum_spawn_gap;
+        maximum_spawn_gap = gap > maximum_spawn_gap ? gap : maximum_spawn_gap;
+      }
+      previous_spawn_ms = elapsed;
+      have_previous_spawn = true;
+    }
+    previous_active_mask = debug.active_mask;
+    previous_spawn_mask = debug.spawn_mask;
+  }
+  assert(saw_birth && saw_disappear && saw_pop);
+  assert(minimum_spawn_gap >= 300);
+  assert(maximum_spawn_gap <= 600);
 
   // Direction changes pause on the same endpoint for one bounded step, then
   // retrace smoothly. There is no discontinuity at either reversal boundary.
   const uint32_t reverse_start =
       kThinkingForwardLapsBeforeReverse * kThinkingLapDurationMs;
-  const GuardedFrame before_reverse =
-      renderFrame(THINKING, reverse_start - 1U, 0, 5);
-  const GuardedFrame at_reverse = renderFrame(THINKING, reverse_start, 0, 5);
-  assert(thinkingHead(before_reverse) == thinkingHead(at_reverse));
+  const ThinkingDebugSnapshot before_reverse =
+      thinkingDebugSnapshot(reverse_start - 1U);
+  const ThinkingDebugSnapshot at_reverse = thinkingDebugSnapshot(reverse_start);
+  assert(!before_reverse.reverse && at_reverse.reverse);
+  assert(before_reverse.head_x == at_reverse.head_x);
+  assert(before_reverse.head_y == at_reverse.head_y);
   const uint32_t forward_resume = reverse_start + kThinkingLapDurationMs;
-  const GuardedFrame before_resume =
-      renderFrame(THINKING, forward_resume - 1U, 0, 5);
-  const GuardedFrame at_resume = renderFrame(THINKING, forward_resume, 0, 5);
-  assert(thinkingHead(before_resume) == thinkingHead(at_resume));
+  const ThinkingDebugSnapshot before_resume =
+      thinkingDebugSnapshot(forward_resume - 1U);
+  const ThinkingDebugSnapshot at_resume =
+      thinkingDebugSnapshot(forward_resume);
+  assert(before_resume.reverse && !at_resume.reverse);
+  assert(before_resume.head_x == at_resume.head_x);
+  assert(before_resume.head_y == at_resume.head_y);
 
-  // Rendering is deterministic, including the slow phase drift.
+  // Rendering and the bubble PRNG are deterministic.
   assert(renderFrame(THINKING, 1234567U, 321U, 5) ==
          renderFrame(THINKING, 1234567U, 321U, 5));
+  const ThinkingDebugSnapshot deterministic_a = thinkingDebugSnapshot(1234246U);
+  const ThinkingDebugSnapshot deterministic_b = thinkingDebugSnapshot(1234246U);
+  assert(deterministic_a.bubble_signature == deterministic_b.bubble_signature);
+  assert(deterministic_a.active_mask == deterministic_b.active_mask);
+  assert(deterministic_a.pop_mask == deterministic_b.pop_mask);
+
+  // THINKING alone receives the 70 ms refresh; every other state keeps the
+  // daemon-configured cadence.
+  assert(effectiveFrameIntervalMs(THINKING, 100) == 70);
+  assert(effectiveFrameIntervalMs(THINKING, 60) == 60);
+  assert(effectiveFrameIntervalMs(READING, 100) == 100);
 }
 
 }  // namespace
