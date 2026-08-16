@@ -1,0 +1,22 @@
+# UNOQ_CODEX_MATRIX_SERVICE=1
+[Unit]
+Description=UNO Q Codex LED Matrix Status Daemon
+Wants=arduino-router.service
+After=arduino-router.service
+
+[Service]
+Type=simple
+User=arduino
+Group=arduino
+ExecStart=/opt/unoq-codex-matrix/venv/bin/unoq-codex-matrixd --config /etc/unoq-codex-matrix/config.json
+RuntimeDirectory=unoq-codex-matrix
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0027
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
