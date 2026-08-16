@@ -109,7 +109,7 @@ State IDs are a versioned wire ABI shared by Python and C++.
 |---:|---|---|---|
 | 0 | OFF | CLI override | Completely dark |
 | 1 | IDLE | Session start or success expiry | Dim center breathing dot |
-| 2 | THINKING | Prompt submitted, tool completed, compaction | Bright comet and sparse residuals orbit a 52-point full-matrix infinity path at 70 ms/frame, over an independent field of slowly rising ambient bubbles and a restrained center pulse |
+| 2 | THINKING | Prompt submitted, tool completed, compaction | Q8-interpolated comet and decaying trail flow around a balanced inner infinity path at 35 ms/frame; bubbles rise on independent subpixel paths with individual fades, while the whole state fades in over 420 ms |
 | 3 | READING | Read, grep, glob, or search tool | Vertical scanning line |
 | 4 | WRITING | `apply_patch`, Edit, or Write | Serpentine writing cursor and trail |
 | 5 | COMMAND | Other shell/tool activity | Right-moving arrow pulse |

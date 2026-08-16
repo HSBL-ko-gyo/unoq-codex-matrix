@@ -236,6 +236,11 @@ Parameters:
 
 Result: `1` when accepted, `0` when rejected. A valid state publish also refreshes the MCU heartbeat. A correctly versioned request with an invalid state ID stages ERROR as a visible protocol fault and refreshes the heartbeat; the next valid publish recovers it. Other invalid arguments are rejected without replacing the last requested state.
 
+The published frame interval remains validated as 50..150 ms for protocol
+compatibility. THINKING internally caps its effective render cadence at 35 ms;
+all other states retain the published interval and the 4.2-second THINKING lap
+speed is unchanged.
+
 #### `codex_matrix_heartbeat`
 
 Parameters: `[protocol_version]`
@@ -275,6 +280,15 @@ bits 7..0    firmware patch
 ```
 
 The initial firmware version is `0.1.0`.
+
+#### `codex_matrix_get_render_metrics`
+
+Parameters: `[]`
+
+Result: unsigned 32-bit diagnostic value. Bits 31..16 contain the average
+renderer-plus-matrix-draw duration in microseconds and bits 15..0 contain the
+maximum duration in the current bounded sample window. This additive
+diagnostic RPC does not change protocol version 1 or any state ID.
 
 ## Heartbeat and OFFLINE behavior
 

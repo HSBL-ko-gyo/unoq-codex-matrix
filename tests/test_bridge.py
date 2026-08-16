@@ -68,3 +68,42 @@ def test_publish_uses_documented_msgpack_rpc(tmp_path: Path) -> None:
     assert methods[0][1] == [1, 7, 2, 100, 12_000, 1]
     assert status.state == State.TESTING
     assert str(version) == "0.1.0"
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="requires Unix sockets")
+def test_get_render_metrics_decodes_packed_microseconds(tmp_path: Path) -> None:
+    path = str(tmp_path / "metrics.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+
+    def serve() -> None:
+        connection, _ = server.accept()
+        unpacker = msgpack.Unpacker(raw=False)
+        with connection:
+            while True:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return
+                unpacker.feed(chunk)
+                for message in unpacker:
+                    _, message_id, method, params = message
+                    assert method == "codex_matrix_get_render_metrics"
+                    assert params == []
+                    packed = (321 << 16) | 987
+                    connection.sendall(
+                        msgpack.packb([1, message_id, None, packed])
+                    )
+                    return
+
+    thread = threading.Thread(target=serve)
+    thread.start()
+    try:
+        bridge = RouterBridge(path, connect_timeout=0.5, response_timeout=0.5)
+        metrics = bridge.get_render_metrics()
+        bridge.close()
+    finally:
+        thread.join(timeout=2)
+        server.close()
+    assert metrics.average_us == 321
+    assert metrics.max_us == 987

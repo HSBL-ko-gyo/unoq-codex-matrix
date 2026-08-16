@@ -4,6 +4,17 @@ All notable changes are documented here.
 
 ## [Unreleased]
 
+- Smoothed THINKING with a 35 ms render cadence while preserving the 4.2 s
+  logical lap, Q8 path and bubble coordinates, bilinear 3-bit intensity
+  distribution, continuous trail decay, and temporally dithered residuals.
+- Added a 420 ms whole-state fade-in, per-bubble 250-450 ms fade-in and
+  200-400 ms fade-out, a bounded center envelope, and a 210 ms crossfade from
+  THINKING to SUCCESS or IDLE while urgent states remain immediate.
+- Added an MCU render-metrics RPC and measured the renderer plus matrix draw at
+  82 us average and 158 us maximum during the 35 ms hardware animation.
+- Expanded the sanitizer-backed renderer test to 200,000 frames with explicit
+  subpixel energy conservation, fade lifecycle, transition interruption, and
+  transition wraparound coverage.
 - Expanded THINKING to a 52-point edge-to-edge infinity trajectory with a
   state-specific level-5 comet, four-sample tail, sparse moving residuals, and
   a clearer but restrained center-crossing response.

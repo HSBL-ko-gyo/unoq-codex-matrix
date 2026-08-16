@@ -45,6 +45,12 @@ class FirmwareVersion:
         return f"{self.major}.{self.minor}.{self.patch}"
 
 
+@dataclass(frozen=True)
+class RenderMetrics:
+    average_us: int
+    max_us: int
+
+
 class RouterBridge:
     """Small synchronous RPC client with reconnect-on-next-call semantics."""
 
@@ -208,6 +214,18 @@ class RouterBridge:
             major=(packed >> 16) & 0xFF,
             minor=(packed >> 8) & 0xFF,
             patch=packed & 0xFF,
+        )
+
+    def get_render_metrics(self) -> RenderMetrics:
+        packed = self._bounded_int(
+            self.request("codex_matrix_get_render_metrics"),
+            0,
+            0xFFFFFFFF,
+            "render-metrics",
+        )
+        return RenderMetrics(
+            average_us=(packed >> 16) & 0xFFFF,
+            max_us=packed & 0xFFFF,
         )
 
     def publish(

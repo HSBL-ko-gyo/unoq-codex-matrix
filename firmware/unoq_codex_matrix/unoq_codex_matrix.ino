@@ -40,6 +40,13 @@ bool bridge_ready = false;
 uint32_t last_heartbeat_ms = 0;
 uint32_t state_entered_ms = 0;
 uint32_t last_frame_ms = 0;
+bool transition_active = false;
+StateId transition_from_state = IDLE;
+uint32_t transition_from_entered_ms = 0;
+uint32_t transition_started_ms = 0;
+uint32_t render_total_us = 0;
+uint16_t render_sample_count = 0;
+uint16_t render_max_us = 0;
 
 int32_t setStateRpc(int32_t protocol_version, int32_t state,
                     int32_t sessions, int32_t requested_frame_interval_ms,
@@ -49,6 +56,13 @@ int32_t heartbeatRpc(int32_t protocol_version);
 int32_t setBrightnessRpc(int32_t protocol_version, int32_t level);
 uint32_t getStatusRpc();
 uint32_t getVersionRpc();
+uint32_t getRenderMetricsRpc();
+
+uint16_t currentFrameIntervalMs() {
+  return transition_active
+             ? kThinkingFrameIntervalMs
+             : effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+}
 
 void noteHeartbeat(const uint32_t now_ms) {
   last_heartbeat_ms = now_ms;
@@ -59,11 +73,29 @@ void enterState(const StateId state, const uint32_t now_ms) {
   if (displayed_state == state) {
     return;
   }
+  const StateId previous_state = displayed_state;
+  const uint32_t previous_entered_ms = state_entered_ms;
+  transition_active =
+      shouldCrossfadeThinkingTransition(previous_state, state);
+  if (transition_active) {
+    transition_from_state = previous_state;
+    transition_from_entered_ms = previous_entered_ms;
+    transition_started_ms = now_ms;
+  }
   displayed_state = state;
   state_entered_ms = now_ms;
   // Force the first frame of a new state on this loop iteration.
-  last_frame_ms =
-      now_ms - effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+  last_frame_ms = now_ms - currentFrameIntervalMs();
+}
+
+void finishTransitionIfDue(const uint32_t now_ms) {
+  if (!transition_active ||
+      now_ms - transition_started_ms < kThinkingFadeOutMs) {
+    return;
+  }
+  transition_active = false;
+  state_entered_ms = now_ms;
+  last_frame_ms = now_ms - currentFrameIntervalMs();
 }
 
 void applyPendingUpdates(const uint32_t now_ms) {
@@ -91,8 +123,7 @@ void applyPendingUpdates(const uint32_t now_ms) {
   if (pending.has_brightness) {
     brightness = pending.brightness;
     pending.has_brightness = false;
-    last_frame_ms =
-        now_ms - effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+    last_frame_ms = now_ms - currentFrameIntervalMs();
   }
 
   if (pending.has_heartbeat) {
@@ -178,6 +209,29 @@ uint32_t getVersionRpc() {
   return packVersion();
 }
 
+uint32_t getRenderMetricsRpc() {
+  const uint16_t average_us =
+      render_sample_count == 0
+          ? 0
+          : static_cast<uint16_t>(render_total_us / render_sample_count);
+  return (static_cast<uint32_t>(average_us) << 16) | render_max_us;
+}
+
+void recordRenderDuration(const uint32_t duration_us) {
+  const uint16_t bounded =
+      duration_us > 0xFFFFu ? 0xFFFFu : static_cast<uint16_t>(duration_us);
+  if (render_sample_count >= 1024u) {
+    render_total_us = 0;
+    render_sample_count = 0;
+    render_max_us = 0;
+  }
+  render_total_us += bounded;
+  ++render_sample_count;
+  if (bounded > render_max_us) {
+    render_max_us = bounded;
+  }
+}
+
 }  // namespace
 
 void setup() {
@@ -206,6 +260,8 @@ void setup() {
         Bridge.provide_safe("codex_matrix_set_brightness", setBrightnessRpc);
     all_registered &=
         Bridge.provide_safe("codex_matrix_get_version", getVersionRpc);
+    all_registered &= Bridge.provide_safe("codex_matrix_get_render_metrics",
+                                          getRenderMetricsRpc);
     bridge_ready = all_registered;
   }
 }
@@ -214,17 +270,25 @@ void loop() {
   const uint32_t now_ms = millis();
   applyPendingUpdates(now_ms);
   updateDisplayedState(now_ms);
+  finishTransitionIfDue(now_ms);
 
   // Unsigned subtraction is intentionally used throughout so millis() wrap is
   // handled correctly.
-  const uint16_t effective_frame_interval_ms =
-      effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+  const uint16_t effective_frame_interval_ms = currentFrameIntervalMs();
   if (now_ms - last_frame_ms >= effective_frame_interval_ms) {
     last_frame_ms = now_ms;
-    renderAnimation(displayed_state, now_ms, state_entered_ms, brightness,
-                    active_count, show_active_count, frame);
+    const uint32_t render_started_us = micros();
+    if (transition_active) {
+      renderTransition(transition_from_state, displayed_state, now_ms,
+                       transition_from_entered_ms, transition_started_ms,
+                       brightness, active_count, show_active_count, frame);
+    } else {
+      renderAnimation(displayed_state, now_ms, state_entered_ms, brightness,
+                      active_count, show_active_count, frame);
+    }
     if (matrix_ready) {
       matrix.draw(frame);
     }
+    recordRenderDuration(micros() - render_started_us);
   }
 }
