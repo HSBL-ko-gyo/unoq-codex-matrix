@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install bounded Hook runtime dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y jq socat
+      - name: Install Python package and tests
+        run: python -m pip install -e '.[dev]'
+      - name: Python syntax check
+        run: python -m compileall -q src scripts tests
+      - name: Unit tests and fixture privacy checks
+        run: python -m pytest
+      - name: Whitespace check for every tracked file
+        run: |
+          empty_tree=$(git hash-object -t tree /dev/null)
+          git diff --check "$empty_tree" HEAD
+      - name: POSIX shell syntax check
+        run: |
+          for script in scripts/*.sh scripts/unoq-codex-matrix-hook; do
+            sh -n "$script"
+          done
+      - name: Lightweight secret and private-host scan
+        run: python scripts/check-secrets.py
+
+  repository-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host-test firmware renderer bounds and wraparound
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Wpedantic \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Ifirmware/unoq_codex_matrix \
+            tests/firmware_host_test.cpp \
+            firmware/unoq_codex_matrix/animations.cpp \
+            -o /tmp/unoq-codex-matrix-firmware-test
+          /tmp/unoq-codex-matrix-firmware-test
+      - name: Reject oversized tracked artifacts
+        run: |
+          found=$(find . -path ./.git -prune -o -type f -size +5M -print)
+          test -z "$found" || { printf '%s\n' "$found"; exit 1; }
+      - name: Verify protocol IDs from Python tests
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pytest tests/test_protocol.py tests/test_fixture_privacy.py

@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible daemon, Hook, Router, or firmware problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Never paste prompts, responses, commands, session identifiers,
+        authentication files, tokens, IP addresses, or raw Hook payloads.
+  - type: input
+    id: version
+    attributes:
+      label: Project version
+      placeholder: v0.1.0-alpha.1
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Sanitized environment
+      description: UNO Q core, Codex, Router, and firmware versions only.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Privacy-safe reproduction steps
+    validations:
+      required: true

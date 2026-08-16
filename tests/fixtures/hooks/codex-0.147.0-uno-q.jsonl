@@ -1,0 +1,11 @@
+{"hook_event_name":"PermissionRequest","tool_name":"Bash","session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786873086226589125,"tool_response_type":null}
+{"hook_event_name":"PostToolUse","tool_name":"Bash","session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786872999835728846,"tool_response_type":"string"}
+{"hook_event_name":"PostToolUse","tool_name":"apply_patch","session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786873056694721735,"tool_response_type":"string"}
+{"hook_event_name":"PreToolUse","tool_name":"Bash","session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786872999363104437,"tool_response_type":null}
+{"hook_event_name":"PreToolUse","tool_name":"apply_patch","session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786873055864067570,"tool_response_type":null}
+{"hook_event_name":"SessionEnd","tool_name":null,"session_prefix_hash":"70a5d1bd7f3e","turn_prefix_hash":null,"event_time_ns":1786872847002236259,"tool_response_type":null}
+{"hook_event_name":"SessionStart","tool_name":null,"session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":null,"event_time_ns":1786872994388934125,"tool_response_type":null}
+{"hook_event_name":"Stop","tool_name":null,"session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786873002647768309,"tool_response_type":null}
+{"hook_event_name":"SubagentStart","tool_name":null,"session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"ccee2ebbec5e","event_time_ns":1786873165187694255,"tool_response_type":null}
+{"hook_event_name":"SubagentStop","tool_name":null,"session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"ccee2ebbec5e","event_time_ns":1786873180381820385,"tool_response_type":null}
+{"hook_event_name":"UserPromptSubmit","tool_name":null,"session_prefix_hash":"8e64797a0bcf","turn_prefix_hash":"8e64797a0bcf","event_time_ns":1786872994660931865,"tool_response_type":null}

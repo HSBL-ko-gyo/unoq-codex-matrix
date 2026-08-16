@@ -1,0 +1,17 @@
+{
+  "codex_version": "0.147.0",
+  "probe_status": "completed-local-exec",
+  "events": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "SubagentStart",
+    "SubagentStop",
+    "Stop",
+    "SessionEnd"
+  ],
+  "not_observed": ["PreCompact", "PostCompact"],
+  "remote_status": "awaiting-phone-originated-turn"
+}
