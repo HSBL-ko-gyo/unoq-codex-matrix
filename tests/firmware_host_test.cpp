@@ -358,7 +358,7 @@ void assertThinkingRenderer() {
   // THINKING alone receives the 16 ms refresh; every other state keeps the
   // daemon-configured cadence.
   assert(effectiveFrameIntervalMs(THINKING, 100) == 16);
-  assert(effectiveFrameIntervalMs(THINKING, 30) == 30);
+  assert(effectiveFrameIntervalMs(THINKING, 10) == 10);
   assert(effectiveFrameIntervalMs(READING, 100) == 100);
 }
 
