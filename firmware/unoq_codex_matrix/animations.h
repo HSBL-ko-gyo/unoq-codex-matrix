@@ -7,6 +7,13 @@
 
 namespace unoq_codex_matrix {
 
+// Public renderer timing constants used by the host-side continuity tests.
+// The path itself remains an implementation detail: it is a moving particle
+// trajectory, never a persistently drawn infinity glyph.
+constexpr uint8_t kThinkingPathPointCount = 36;
+constexpr uint16_t kThinkingLapDurationMs = 3768;
+constexpr uint8_t kThinkingForwardLapsBeforeReverse = 5;
+
 // Renders exactly one 8x13 grayscale frame. The caller owns the static frame
 // buffer; this function performs no dynamic allocation.
 void renderAnimation(StateId state, uint32_t now_ms, uint32_t state_entered_ms,

@@ -20,6 +20,17 @@ inline uint8_t lowLevel(const uint8_t brightness) {
   return brightness == 0 ? 0 : 1;
 }
 
+inline uint8_t scaledLevel(const uint8_t brightness,
+                           const uint8_t nominal_level) {
+  const uint8_t high = highLevel(brightness);
+  if (high == 0 || nominal_level == 0) {
+    return 0;
+  }
+  const uint8_t scaled = static_cast<uint8_t>(
+      (static_cast<uint16_t>(high) * nominal_level) / 7u);
+  return scaled == 0 ? 1 : scaled;
+}
+
 inline void setPixel(uint8_t frame[kPixelCount], const int16_t x,
                      const int16_t y, const uint8_t level) {
   if (x < 0 || x >= kMatrixWidth || y < 0 || y >= kMatrixHeight) {
@@ -56,13 +67,6 @@ uint8_t pingPongPosition(const uint32_t elapsed_ms, const uint16_t step_ms,
                       : static_cast<uint8_t>(cycle - phase);
 }
 
-bool pingPongMovingForward(const uint32_t elapsed_ms, const uint16_t step_ms,
-                           const uint8_t extent) {
-  const uint16_t leg = static_cast<uint16_t>(extent - 1);
-  const uint16_t cycle = static_cast<uint16_t>(leg * 2);
-  return ((elapsed_ms / step_ms) % cycle) <= leg;
-}
-
 void renderIdle(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
                 const uint8_t brightness) {
   const uint8_t high = highLevel(brightness);
@@ -78,15 +82,170 @@ void renderIdle(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
   setPixel(frame, 6, 4, mediumLevel(level));
 }
 
+struct ThinkingPoint {
+  int8_t x;
+  int8_t y;
+};
+
+// A discretized Bernoulli-style lemniscate. Consecutive entries are always
+// 8-neighbours and consecutive duplicates were removed, so the bright head
+// never jumps or stalls. Only particles sample these points; the path is never
+// drawn as an outline.
+constexpr ThinkingPoint kThinkingPath[kThinkingPathPointCount] = {
+    {6, 4}, {6, 3}, {7, 3}, {7, 2}, {8, 2}, {8, 1},
+    {9, 1}, {10, 1}, {11, 2}, {11, 3}, {11, 4}, {11, 5},
+    {10, 6}, {9, 6}, {8, 6}, {8, 5}, {7, 5}, {7, 4},
+    {6, 4}, {6, 3}, {5, 3}, {5, 2}, {4, 2}, {4, 1},
+    {3, 1}, {2, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 5},
+    {2, 6}, {3, 6}, {4, 6}, {4, 5}, {5, 5}, {5, 4},
+};
+
+// A deterministic +/-5% velocity drift prevents a metronomic feel while
+// retaining a constant lap duration and inexpensive integer-only lookup.
+constexpr uint8_t kThinkingStepDurationMs[kThinkingPathPointCount] = {
+    104, 102, 100, 102, 104, 106, 108, 110, 108,
+    106, 104, 102, 100, 102, 104, 106, 108, 110,
+    108, 106, 104, 102, 100, 102, 104, 106, 108,
+    110, 108, 106, 104, 102, 100, 102, 104, 106,
+};
+
+constexpr uint16_t thinkingStepDurationTotal() {
+  uint16_t total = 0;
+  for (uint8_t i = 0; i < kThinkingPathPointCount; ++i) {
+    total = static_cast<uint16_t>(total + kThinkingStepDurationMs[i]);
+  }
+  return total;
+}
+
+static_assert(thinkingStepDurationTotal() == kThinkingLapDurationMs,
+              "THINKING lap duration must match its step table");
+
+struct ThinkingPhase {
+  uint8_t travel_step;
+  uint8_t path_index;
+  uint8_t lap_modulo;
+  uint8_t step_fraction;
+  bool reverse;
+};
+
+uint8_t wrapThinkingStep(int16_t step) {
+  while (step < 0) {
+    step = static_cast<int16_t>(step + kThinkingPathPointCount);
+  }
+  while (step >= kThinkingPathPointCount) {
+    step = static_cast<int16_t>(step - kThinkingPathPointCount);
+  }
+  return static_cast<uint8_t>(step);
+}
+
+uint8_t thinkingPathIndex(const int16_t travel_step, const bool reverse) {
+  const uint8_t wrapped = wrapThinkingStep(travel_step);
+  return reverse ? static_cast<uint8_t>(kThinkingPathPointCount - 1 - wrapped)
+                 : wrapped;
+}
+
+ThinkingPhase thinkingPhase(const uint32_t elapsed_ms) {
+  const uint32_t lap = elapsed_ms / kThinkingLapDurationMs;
+  uint16_t within_lap =
+      static_cast<uint16_t>(elapsed_ms % kThinkingLapDurationMs);
+  uint8_t travel_step = 0;
+  while (travel_step + 1 < kThinkingPathPointCount &&
+         within_lap >= kThinkingStepDurationMs[travel_step]) {
+    within_lap = static_cast<uint16_t>(
+        within_lap - kThinkingStepDurationMs[travel_step]);
+    ++travel_step;
+  }
+
+  constexpr uint8_t kDirectionCycleLaps =
+      kThinkingForwardLapsBeforeReverse + 1;
+  const uint8_t lap_modulo =
+      static_cast<uint8_t>(lap % kDirectionCycleLaps);
+  const bool reverse = lap_modulo == kThinkingForwardLapsBeforeReverse;
+  const uint8_t duration = kThinkingStepDurationMs[travel_step];
+  const uint8_t fraction = static_cast<uint8_t>(
+      (static_cast<uint16_t>(within_lap) * 8u) / duration);
+  return {travel_step, thinkingPathIndex(travel_step, reverse), lap_modulo,
+          fraction, reverse};
+}
+
+void setThinkingPathPixel(uint8_t frame[kPixelCount], const int16_t travel_step,
+                          const bool reverse, const uint8_t level) {
+  const ThinkingPoint point =
+      kThinkingPath[thinkingPathIndex(travel_step, reverse)];
+  setPixel(frame, point.x, point.y, level);
+}
+
+uint8_t circularThinkingDistance(const uint8_t from, const uint8_t to) {
+  const uint8_t direct = from > to ? static_cast<uint8_t>(from - to)
+                                   : static_cast<uint8_t>(to - from);
+  const uint8_t wrapped =
+      static_cast<uint8_t>(kThinkingPathPointCount - direct);
+  return direct < wrapped ? direct : wrapped;
+}
+
 void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
                     const uint8_t brightness) {
-  constexpr uint16_t kStepMs = 90;
-  const int16_t head = pingPongPosition(elapsed_ms, kStepMs, kMatrixWidth);
-  const int16_t direction =
-      pingPongMovingForward(elapsed_ms, kStepMs, kMatrixWidth) ? 1 : -1;
-  setPixel(frame, head, 3, highLevel(brightness));
-  setPixel(frame, head - direction, 3, mediumLevel(brightness));
-  setPixel(frame, head - 2 * direction, 3, lowLevel(brightness));
+  if (highLevel(brightness) == 0) {
+    return;
+  }
+
+  const ThinkingPhase phase = thinkingPhase(elapsed_ms);
+  const ThinkingPoint head = kThinkingPath[phase.path_index];
+
+  // The tail opens through the fast centre crossing and curls more tightly at
+  // the outer lobes. This avoids a rigid four-pixel comet.
+  const bool near_crossing = head.x >= 4 && head.x <= 8;
+  const uint8_t trail_1 = near_crossing ? 2 : 1;
+  const uint8_t trail_2 = near_crossing ? 5 : 3;
+  const uint8_t trail_3 = near_crossing ? 9 : 6;
+  setThinkingPathPixel(frame, phase.travel_step - trail_3, phase.reverse,
+                       scaledLevel(brightness, 1));
+  setThinkingPathPixel(frame, phase.travel_step - trail_2, phase.reverse,
+                       scaledLevel(brightness, 3));
+  setThinkingPathPixel(frame, phase.travel_step - trail_1, phase.reverse,
+                       scaledLevel(brightness, 5));
+  setPixel(frame, head.x, head.y, scaledLevel(brightness, 7));
+
+  // A dim leading interpolation point appears only near the end of a step,
+  // softening the 8x13 grid without any floating-point work.
+  if (phase.step_fraction >= 6) {
+    setThinkingPathPixel(frame, phase.travel_step + 1, phase.reverse,
+                         scaledLevel(brightness, 2));
+  }
+
+  // Two low-energy particles orbit out of phase. Their offset drifts by two
+  // path points across the direction cycle, producing a slow organic change.
+  const uint8_t phase_drift =
+      phase.lap_modulo <= 2 ? phase.lap_modulo
+                            : static_cast<uint8_t>(5 - phase.lap_modulo);
+  setThinkingPathPixel(frame, phase.travel_step + 12 + phase_drift,
+                       phase.reverse, scaledLevel(brightness, 2));
+  setThinkingPathPixel(frame, phase.travel_step + 25 - phase_drift,
+                       phase.reverse, scaledLevel(brightness, 1));
+
+  // At either physical crossing, a restrained centre pulse briefly excites
+  // nearby pixels and immediately decays. The pulse alternates slightly in
+  // strength from lap to lap, but never becomes a full-frame flash.
+  uint8_t crossing_distance = circularThinkingDistance(phase.path_index, 0);
+  const uint8_t second_crossing =
+      circularThinkingDistance(phase.path_index,
+                               kThinkingPathPointCount / 2);
+  if (second_crossing < crossing_distance) {
+    crossing_distance = second_crossing;
+  }
+  if (crossing_distance == 0) {
+    const uint8_t spark_nominal = (phase.lap_modulo & 1u) == 0 ? 4 : 3;
+    setPixel(frame, 6, 3, scaledLevel(brightness, spark_nominal));
+  } else if (crossing_distance == 1) {
+    setPixel(frame, 6, 4, scaledLevel(brightness, 3));
+    setPixel(frame, 5, 3, scaledLevel(brightness, 1));
+    setPixel(frame, 7, 4, scaledLevel(brightness, 1));
+  } else if (crossing_distance == 2) {
+    setPixel(frame, 5, 3, scaledLevel(brightness, 1));
+    setPixel(frame, 7, 3, scaledLevel(brightness, 1));
+    setPixel(frame, 5, 4, scaledLevel(brightness, 1));
+    setPixel(frame, 7, 4, scaledLevel(brightness, 1));
+  }
 }
 
 void renderReading(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,

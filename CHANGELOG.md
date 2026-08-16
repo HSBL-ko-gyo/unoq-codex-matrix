@@ -2,6 +2,16 @@
 
 All notable changes are documented here.
 
+## [Unreleased]
+
+- Replaced the simple THINKING ping-pong dot with a sparse, full-matrix
+  infinity-shaped particle trajectory, variable grayscale trail, secondary
+  particles, subtle center-crossing response, deterministic speed drift, and
+  periodic direction reversal.
+- Extended the sanitizer-backed firmware host test to exercise 100,000
+  THINKING frames across bounds, brightness, millis rollover, and reversal
+  continuity.
+
 ## [0.1.0-alpha.1] - 2026-08-16
 
 - Initial independent implementation of the Codex lifecycle hook pipeline.
