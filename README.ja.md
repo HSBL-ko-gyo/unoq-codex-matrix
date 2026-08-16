@@ -104,8 +104,8 @@ sudo ./scripts/install.sh --no-start
 | ID | 状態 | 主な契機 | アニメーション |
 |---:|---|---|---|
 | 0 | OFF | CLI override | 完全消灯 |
-| 1 | IDLE | SessionStart、SUCCESS期限切れ | 中央の低輝度breathing dot |
-| 2 | THINKING | prompt送信、tool完了、compact | Q8補間されたコメットと減衰trailが内側の∞軌道を35 ms/frameで流れ、個別fade付きbubbleが独立したsubpixel軌道を上昇し、状態全体は420 msでfade-inする |
+| 1 | IDLE | SessionStart、SUCCESS期限切れ | 約210msの進入fade後、物理輝度1で均一に点灯する静止横3点READY表示 |
+| 2 | THINKING | prompt送信、tool完了、compact | 3-bitのQ8補間コメットと減衰trailが内側の∞軌道を16 ms/frameで等速に流れ、個別fade付きbubbleが真上へ上昇し、状態全体は420 msでfade-inする |
 | 3 | READING | read、grep、glob、search | 縦の走査線 |
 | 4 | WRITING | `apply_patch`、Edit、Write | 蛇行する筆記cursorと軌跡 |
 | 5 | COMMAND | その他のshell/tool | 右へ進む矢印pulse |

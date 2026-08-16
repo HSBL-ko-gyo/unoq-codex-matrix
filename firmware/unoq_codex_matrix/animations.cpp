@@ -59,7 +59,7 @@ inline void addPixelSaturating(uint8_t frame[kPixelCount], const int16_t x,
 }
 
 void addIntensityQ8(uint8_t frame[kPixelCount], int16_t x, int16_t y,
-                    uint16_t intensity_q8, uint8_t temporal_phase);
+                    uint16_t intensity_q8);
 
 void drawGlyph(uint8_t frame[kPixelCount], const uint16_t rows[kMatrixHeight],
                const uint8_t level) {
@@ -84,35 +84,6 @@ uint8_t pingPongPosition(const uint32_t elapsed_ms, const uint16_t step_ms,
                       : static_cast<uint8_t>(cycle - phase);
 }
 
-struct IdleEnvelope {
-  uint8_t breath_q8;
-  uint8_t halo_q8;
-};
-
-IdleEnvelope idleEnvelope(const uint32_t elapsed_ms) {
-  constexpr uint16_t kHalfBreathMs = kIdleBreathPeriodMs / 2u;
-  constexpr uint16_t kHaloHalfWindowMs = 180;
-  const uint16_t phase =
-      static_cast<uint16_t>(elapsed_ms % kIdleBreathPeriodMs);
-  const uint16_t ramp = phase <= kHalfBreathMs
-                            ? phase
-                            : static_cast<uint16_t>(kIdleBreathPeriodMs - phase);
-  const uint8_t breath_q8 = static_cast<uint8_t>(
-      (static_cast<uint32_t>(ramp) * 255u) / kHalfBreathMs);
-  const uint16_t peak_distance =
-      phase > kHalfBreathMs
-          ? static_cast<uint16_t>(phase - kHalfBreathMs)
-          : static_cast<uint16_t>(kHalfBreathMs - phase);
-  const uint8_t halo_q8 =
-      peak_distance >= kHaloHalfWindowMs
-          ? 0
-          : static_cast<uint8_t>(
-                (static_cast<uint32_t>(kHaloHalfWindowMs - peak_distance) *
-                 255u) /
-                kHaloHalfWindowMs);
-  return {breath_q8, halo_q8};
-}
-
 uint8_t idleFadeOpacity(const uint32_t elapsed_ms) {
   if (elapsed_ms >= kIdleFadeInMs) {
     return 255;
@@ -123,40 +94,16 @@ uint8_t idleFadeOpacity(const uint32_t elapsed_ms) {
 
 void renderIdle(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
                 const uint8_t brightness) {
+  (void)elapsed_ms;
   const uint8_t configured = highLevel(brightness);
   if (configured == 0) {
     return;
   }
-  const IdleEnvelope envelope = idleEnvelope(elapsed_ms);
-  const uint8_t ceiling = configured > 2 ? 2 : configured;
-  const uint16_t minimum_q8 = ceiling == 1 ? 128u : 256u;
-  const uint16_t span_q8 = ceiling == 1 ? 128u : 256u;
-  const uint16_t center_q8 = static_cast<uint16_t>(
-      minimum_q8 + (static_cast<uint32_t>(span_q8) * envelope.breath_q8) /
-                       255u);
-  const uint8_t temporal_phase =
-      static_cast<uint8_t>(elapsed_ms / kThinkingFrameIntervalMs);
-
-  // Four quiet core pixels form a soft nucleus rather than an icon. The
-  // fractional levels are temporally dithered by the shared Q8 renderer.
-  addIntensityQ8(frame, 6, 3, center_q8, temporal_phase);
-  addIntensityQ8(frame, 6, 4,
-                 static_cast<uint16_t>((center_q8 * 3u) / 4u),
-                 static_cast<uint8_t>(temporal_phase + 41u));
-  addIntensityQ8(frame, 5, 4,
-                 static_cast<uint16_t>((center_q8 * 5u) / 8u),
-                 static_cast<uint8_t>(temporal_phase + 83u));
-  addIntensityQ8(frame, 7, 4,
-                 static_cast<uint16_t>((center_q8 * 5u) / 8u),
-                 static_cast<uint8_t>(temporal_phase + 127u));
-
-  // Only near the breathing peak, a 360 ms-wide level-one glow reaches the
-  // immediate left and right neighbours and then disappears naturally.
-  const uint16_t halo_q8 = envelope.halo_q8;
-  addIntensityQ8(frame, 5, 3, halo_q8,
-                 static_cast<uint8_t>(temporal_phase + 17u));
-  addIntensityQ8(frame, 7, 3, halo_q8,
-                 static_cast<uint8_t>(temporal_phase + 149u));
+  // READY remains completely static after the bounded entry fade.
+  constexpr uint8_t kReadyLevel = 1;
+  setPixel(frame, 4, 4, kReadyLevel);
+  setPixel(frame, 6, 4, kReadyLevel);
+  setPixel(frame, 8, 4, kReadyLevel);
 }
 
 struct ThinkingPoint {
@@ -177,13 +124,13 @@ constexpr ThinkingPoint kThinkingPath[kThinkingPathPointCount] = {
     {9, 6},  {8, 6},  {8, 5},  {7, 5},  {7, 4},
 };
 
-// Five identical low-amplitude velocity waves total exactly 4.2 seconds.
+// Every path segment takes the same time: perceived motion stays constant.
 constexpr uint8_t kThinkingStepDurationMs[kThinkingPathPointCount] = {
-    105, 102, 100, 102, 105, 108, 110, 108,
-    105, 102, 100, 102, 105, 108, 110, 108,
-    105, 102, 100, 102, 105, 108, 110, 108,
-    105, 102, 100, 102, 105, 108, 110, 108,
-    105, 102, 100, 102, 105, 108, 110, 108,
+    105, 105, 105, 105, 105, 105, 105, 105,
+    105, 105, 105, 105, 105, 105, 105, 105,
+    105, 105, 105, 105, 105, 105, 105, 105,
+    105, 105, 105, 105, 105, 105, 105, 105,
+    105, 105, 105, 105, 105, 105, 105, 105,
 };
 
 constexpr uint16_t thinkingStepDurationTotal() {
@@ -285,24 +232,15 @@ uint8_t thinkingLevel(const uint8_t brightness, const uint8_t nominal_level) {
 }
 
 void addIntensityQ8(uint8_t frame[kPixelCount], const int16_t x,
-                    const int16_t y, const uint16_t intensity_q8,
-                    const uint8_t temporal_phase) {
-  const uint8_t whole = static_cast<uint8_t>(intensity_q8 >> 8);
-  const uint8_t fraction = static_cast<uint8_t>(intensity_q8 & 0xFFu);
-  addPixelSaturating(frame, x, y, whole);
-  const uint8_t dither = static_cast<uint8_t>(
-      static_cast<uint16_t>(temporal_phase) * 73u +
-      static_cast<uint16_t>(x + 1) * 29u +
-      static_cast<uint16_t>(y + 1) * 47u);
-  if (fraction != 0 && dither < fraction) {
-    addPixelSaturating(frame, x, y, 1);
-  }
+                    const int16_t y, const uint16_t intensity_q8) {
+  // Round fractional spatial contributions once; do not add temporal dither.
+  addPixelSaturating(frame, x, y,
+                     static_cast<uint8_t>((intensity_q8 + 128u) >> 8));
 }
 
 void addSubpixelParticle(uint8_t frame[kPixelCount], const uint16_t x_q8,
                          const uint16_t y_q8,
-                         const uint16_t intensity_q8,
-                         const uint8_t temporal_phase) {
+                         const uint16_t intensity_q8) {
   const int16_t x = static_cast<int16_t>(x_q8 >> 8);
   const int16_t y = static_cast<int16_t>(y_q8 >> 8);
   const uint16_t fx = static_cast<uint16_t>(x_q8 & 0xFFu);
@@ -323,8 +261,7 @@ void addSubpixelParticle(uint8_t frame[kPixelCount], const uint16_t x_q8,
     if (contribution == 0) {
       continue;
     }
-    addIntensityQ8(frame, x + dx[index], y + dy[index], contribution,
-                   static_cast<uint8_t>(temporal_phase + index * 61u));
+    addIntensityQ8(frame, x + dx[index], y + dy[index], contribution);
   }
 }
 
@@ -340,8 +277,8 @@ void addThinkingParticle(uint8_t frame[kPixelCount],
   const SubpixelPoint point =
       thinkingCoordinate(phase.travel_step + step_offset, phase.reverse,
                          phase.fraction_q8);
-  addSubpixelParticle(frame, point.x_q8, point.y_q8, intensity_q8,
-                      temporal_phase);
+  (void)temporal_phase;
+  addSubpixelParticle(frame, point.x_q8, point.y_q8, intensity_q8);
 }
 
 uint32_t mixThinkingBits(uint32_t value) {
@@ -382,8 +319,10 @@ Bubble thinkingBubble(const uint8_t slot, const uint32_t elapsed_ms,
   const uint32_t seed = mixThinkingBits(
       0xB7E15163u ^ static_cast<uint32_t>(slot) * 0x9E3779B9u ^
       generation * 0x85EBCA6Bu);
+  // Cross the 6-7 row rise quickly enough that deterministic 3-bit spatial
+  // rounding does not leave a bubble parked on one LED for too long.
   const uint16_t lifetime_ms =
-      static_cast<uint16_t>(1950u + seed % 501u);
+      static_cast<uint16_t>(1550u + seed % 401u);
   const uint16_t fade_in_ms =
       static_cast<uint16_t>(250u + ((seed >> 5) % 151u));
   const uint16_t fade_out_ms =
@@ -449,15 +388,12 @@ void renderThinkingBubbles(uint8_t frame[kPixelCount],
                            const uint8_t brightness) {
   Bubble bubbles[kThinkingBubbleCapacity] = {};
   populateThinkingBubbles(bubbles, elapsed_ms, brightness);
-  const uint8_t frame_phase =
-      static_cast<uint8_t>(elapsed_ms / kThinkingFrameIntervalMs);
   for (uint8_t slot = 0; slot < kThinkingBubbleCapacity; ++slot) {
     const Bubble& bubble = bubbles[slot];
     if (bubble.active) {
       addSubpixelParticle(
           frame, bubble.x_q8, bubble.y_q8,
-          intensityWithOpacity(bubble.brightness, bubble.opacity_q8),
-          static_cast<uint8_t>(frame_phase + slot * 37u));
+          intensityWithOpacity(bubble.brightness, bubble.opacity_q8));
     }
   }
 }
@@ -534,7 +470,7 @@ void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
         static_cast<uint8_t>(frame_phase + index * 31u));
   }
 
-  // Sub-level residual energy is temporally dithered with dispersed phases.
+  // Residual energy is rounded once into the driver's native 3-bit input.
   const int8_t residual_offsets[3] = {-11, -14, -17};
   const uint8_t residual_salts[3] = {17, 103, 211};
   for (uint8_t index = 0; index < 3; ++index) {
@@ -555,20 +491,16 @@ void renderThinking(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
   const uint8_t center_opacity = thinkingCenterOpacity(phase);
   addIntensityQ8(frame, 6, 3,
                  intensityWithOpacity(thinkingLevel(brightness, 7),
-                                      center_opacity),
-                 static_cast<uint8_t>(frame_phase + 13u));
+                                      center_opacity));
   addIntensityQ8(frame, 6, 4,
                  intensityWithOpacity(thinkingLevel(brightness, 5),
-                                      center_opacity),
-                 static_cast<uint8_t>(frame_phase + 47u));
+                                      center_opacity));
   addIntensityQ8(frame, 5, 3,
                  intensityWithOpacity(thinkingLevel(brightness, 2),
-                                      center_opacity),
-                 static_cast<uint8_t>(frame_phase + 89u));
+                                      center_opacity));
   addIntensityQ8(frame, 7, 4,
                  intensityWithOpacity(thinkingLevel(brightness, 2),
-                                      center_opacity),
-                 static_cast<uint8_t>(frame_phase + 151u));
+                                      center_opacity));
 }
 
 void renderReading(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
@@ -722,22 +654,14 @@ void addActiveCount(uint8_t frame[kPixelCount], const uint8_t active_count,
   }
 }
 
-void scaleFrameOpacity(uint8_t frame[kPixelCount], const uint8_t opacity_q8,
-                       const uint8_t temporal_phase) {
+void scaleFrameOpacity(uint8_t frame[kPixelCount], const uint8_t opacity_q8) {
   if (opacity_q8 == 255) {
     return;
   }
   for (uint16_t index = 0; index < kPixelCount; ++index) {
     const uint16_t product =
         static_cast<uint16_t>(frame[index]) * opacity_q8;
-    uint8_t level = static_cast<uint8_t>(product / 255u);
-    const uint8_t remainder = static_cast<uint8_t>(product % 255u);
-    const uint8_t dither = static_cast<uint8_t>(
-        static_cast<uint16_t>(temporal_phase) * 83u + index * 43u);
-    if (remainder != 0 && dither < remainder && level < kMaxBrightness) {
-      ++level;
-    }
-    frame[index] = level;
+    frame[index] = static_cast<uint8_t>((product + 127u) / 255u);
   }
 }
 
@@ -791,16 +715,15 @@ ThinkingDebugSnapshot thinkingDebugSnapshot(const uint32_t elapsed_ms) {
 }
 
 IdleDebugSnapshot idleDebugSnapshot(const uint32_t elapsed_ms) {
-  const IdleEnvelope envelope = idleEnvelope(elapsed_ms);
-  return {envelope.breath_q8, envelope.halo_q8,
-          idleFadeOpacity(elapsed_ms)};
+  return {idleFadeOpacity(elapsed_ms)};
 }
 
 void addThinkingTestParticle(const uint16_t x_q8, const uint16_t y_q8,
                              const uint16_t intensity_q8,
                              const uint8_t temporal_phase,
                              uint8_t frame[kPixelCount]) {
-  addSubpixelParticle(frame, x_q8, y_q8, intensity_q8, temporal_phase);
+  (void)temporal_phase;
+  addSubpixelParticle(frame, x_q8, y_q8, intensity_q8);
 }
 #endif
 
@@ -864,13 +787,9 @@ void renderAnimation(const StateId state, const uint32_t now_ms,
     addActiveCount(frame, active_count, brightness);
   }
   if (state == THINKING) {
-    scaleFrameOpacity(
-        frame, thinkingFadeOpacity(elapsed_ms),
-        static_cast<uint8_t>(elapsed_ms / kThinkingFrameIntervalMs));
+    scaleFrameOpacity(frame, thinkingFadeOpacity(elapsed_ms));
   } else if (state == IDLE) {
-    scaleFrameOpacity(frame, idleFadeOpacity(elapsed_ms),
-                      static_cast<uint8_t>(elapsed_ms /
-                                           kThinkingFrameIntervalMs));
+    scaleFrameOpacity(frame, idleFadeOpacity(elapsed_ms));
   }
 }
 

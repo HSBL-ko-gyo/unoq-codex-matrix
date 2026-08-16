@@ -14,14 +14,16 @@ constexpr uint8_t kThinkingPathPointCount = 40;
 constexpr uint16_t kThinkingLapDurationMs = 4200;
 constexpr uint8_t kThinkingForwardLapsBeforeReverse = 9;
 constexpr uint8_t kThinkingBubbleCapacity = 7;
-constexpr uint16_t kThinkingFrameIntervalMs = 35;
+// ArduinoCore-zephyr plays its native grayscale animation at 16 ms/frame.
+constexpr uint16_t kThinkingFrameIntervalMs = 16;
 constexpr uint16_t kThinkingFadeInMs = 420;
 constexpr uint16_t kThinkingFadeOutMs = 210;
-constexpr uint16_t kIdleBreathPeriodMs = 3200;
 constexpr uint16_t kIdleFadeInMs = 210;
+constexpr uint16_t kIdleFadeFrameIntervalMs = 32;
+constexpr uint16_t kIdleStaticRefreshIntervalMs = 750;
 
-// THINKING can refresh more smoothly than the configured cadence without
-// changing any other state's timing or the Router RPC contract.
+// The production renderer uses the same 16 ms cadence as Arduino's native
+// boot animation.  Other state timing remains daemon-configurable.
 constexpr uint16_t effectiveFrameIntervalMs(const StateId state,
                                              const uint16_t configured_ms) {
   return state == THINKING && configured_ms > kThinkingFrameIntervalMs
@@ -51,8 +53,6 @@ struct ThinkingDebugSnapshot {
 };
 
 struct IdleDebugSnapshot {
-  uint8_t breath_q8;
-  uint8_t halo_q8;
   uint8_t fade_opacity_q8;
 };
 

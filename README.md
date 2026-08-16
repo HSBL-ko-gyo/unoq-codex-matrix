@@ -108,8 +108,8 @@ State IDs are a versioned wire ABI shared by Python and C++.
 | ID | State | Typical trigger | Matrix animation |
 |---:|---|---|---|
 | 0 | OFF | CLI override | Completely dark |
-| 1 | IDLE | Session start or success expiry | Dim center breathing dot |
-| 2 | THINKING | Prompt submitted, tool completed, compaction | Q8-interpolated comet and decaying trail flow around a balanced inner infinity path at 35 ms/frame; bubbles rise on independent subpixel paths with individual fades, while the whole state fades in over 420 ms |
+| 1 | IDLE | Session start or success expiry | Static level-1 three-dot READY indicator centered at x=4, 6, 8 after a 210 ms entry fade |
+| 2 | THINKING | Prompt submitted, tool completed, compaction | 3-bit grayscale, Q8-interpolated comet and decaying trail flow around a balanced inner infinity path at 16 ms/frame; bubbles rise on independent subpixel paths with individual fades, while the whole state fades in over 420 ms |
 | 3 | READING | Read, grep, glob, or search tool | Vertical scanning line |
 | 4 | WRITING | `apply_patch`, Edit, or Write | Serpentine writing cursor and trail |
 | 5 | COMMAND | Other shell/tool activity | Right-moving arrow pulse |

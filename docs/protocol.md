@@ -237,9 +237,11 @@ Parameters:
 Result: `1` when accepted, `0` when rejected. A valid state publish also refreshes the MCU heartbeat. A correctly versioned request with an invalid state ID stages ERROR as a visible protocol fault and refreshes the heartbeat; the next valid publish recovers it. Other invalid arguments are rejected without replacing the last requested state.
 
 The published frame interval remains validated as 50..150 ms for protocol
-compatibility. THINKING internally caps its effective render cadence at 35 ms;
-all other states retain the published interval and the 4.2-second THINKING lap
-speed is unchanged.
+compatibility. THINKING internally caps its effective render cadence at 16 ms,
+matching Arduino's native boot-animation playback;
+IDLE uses 32 ms only for its 210 ms entry fade and then resends its static frame
+every 750 ms. Other states retain the published interval, and the 4.2-second
+THINKING lap speed is unchanged.
 
 #### `codex_matrix_heartbeat`
 

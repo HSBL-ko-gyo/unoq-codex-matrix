@@ -31,10 +31,9 @@ void assertGuardsAndLevels(const GuardedFrame& frame, StateId state,
                            uint8_t brightness) {
   assert(frame.front() == 0xA5);
   assert(frame.back() == 0x5A);
-  const uint8_t maximum = state == THINKING
-                              ? kMaxBrightness
-                              : (brightness > kMaxBrightness ? kMaxBrightness
-                                                              : brightness);
+  const uint8_t safe_brightness =
+      brightness > kMaxBrightness ? kMaxBrightness : brightness;
+  const uint8_t maximum = safe_brightness;
   for (uint16_t index = 1; index <= kPixelCount; ++index) {
     assert(frame[index] <= maximum);
   }
@@ -108,11 +107,11 @@ void assertThinkingRenderer() {
   assert(frameEnergy(renderFrame(THINKING, 0, 0, 3)) == 0);
   assert(frameEnergy(renderFrame(THINKING, kThinkingFadeInMs, 0, 3)) > 0);
 
-  // Three 35 ms renders occur during the first 105 ms logical segment. The
+  // Several 16 ms renders occur during the first 105 ms logical segment. The
   // head therefore occupies true intermediate Q8 positions, not only anchors.
   const ThinkingDebugSnapshot head_0 = thinkingDebugSnapshot(0);
-  const ThinkingDebugSnapshot head_35 = thinkingDebugSnapshot(35);
-  const ThinkingDebugSnapshot head_70 = thinkingDebugSnapshot(70);
+  const ThinkingDebugSnapshot head_35 = thinkingDebugSnapshot(32);
+  const ThinkingDebugSnapshot head_70 = thinkingDebugSnapshot(64);
   assert(head_0.head_y_q8 == 4 * 256u);
   assert(head_35.head_y_q8 < head_0.head_y_q8);
   assert(head_35.head_y_q8 > head_70.head_y_q8);
@@ -137,6 +136,8 @@ void assertThinkingRenderer() {
   assert((fade_0.bubble0_x_q8 & 0xFFu) == 0);
   assert(fade_0.bubble0_brightness >= 1);
   assert(fade_0.bubble0_brightness <= 2);
+  assert(fade_0.bubble0_lifetime_ms >= 1550);
+  assert(fade_0.bubble0_lifetime_ms <= 1950);
   assert(bubble_active.bubble0_y_q8 < fade_0.bubble0_y_q8);
   assert(bubble_fading_out.bubble0_opacity_q8 > 0);
   assert(bubble_fading_out.bubble0_opacity_q8 < 255);
@@ -160,12 +161,12 @@ void assertThinkingRenderer() {
   }
   assert(saw_fractional_bubble_y);
 
-  // Exercise 200,000 frames (almost two hours at 35 ms/frame), beginning
+  // Exercise 300,000 frames (more than one hour at 16 ms/frame), beginning
   // close to millis() rollover. Guard bytes make every out-of-bounds write a
   // deterministic test failure under both native and sanitizer builds.
   constexpr uint32_t kEntered =
       std::numeric_limits<uint32_t>::max() - 5000U;
-  for (uint32_t sample = 0; sample < 200000U; ++sample) {
+  for (uint32_t sample = 0; sample < 300000U; ++sample) {
     const uint32_t elapsed =
         kThinkingFadeInMs + sample * kThinkingFrameIntervalMs;
     const uint32_t now = kEntered + elapsed;
@@ -317,7 +318,9 @@ void assertThinkingRenderer() {
     assertGuardsAndLevels(particle, THINKING, 3);
     accumulated_energy += frameEnergy(particle);
   }
-  assert(accumulated_energy == 5u * 256u);
+  // Deterministic rounding is stable and needs no temporal dither.
+  assert(accumulated_energy >= 4u * 256u);
+  assert(accumulated_energy <= 5u * 256u);
   GuardedFrame saturated;
   saturated.fill(kMaxBrightness);
   saturated.front() = 0xA5;
@@ -351,50 +354,30 @@ void assertThinkingRenderer() {
   assert(!shouldCrossfadeThinkingTransition(THINKING, ERROR));
   assert(!shouldCrossfadeThinkingTransition(THINKING, OFFLINE));
 
-  // THINKING alone receives the 35 ms refresh; every other state keeps the
+  // THINKING alone receives the 16 ms refresh; every other state keeps the
   // daemon-configured cadence.
-  assert(effectiveFrameIntervalMs(THINKING, 100) == 35);
+  assert(effectiveFrameIntervalMs(THINKING, 100) == 16);
   assert(effectiveFrameIntervalMs(THINKING, 30) == 30);
   assert(effectiveFrameIntervalMs(READING, 100) == 100);
 }
 
 void assertIdleRenderer() {
   const IdleDebugSnapshot start = idleDebugSnapshot(0);
-  const IdleDebugSnapshot quarter = idleDebugSnapshot(800);
-  const IdleDebugSnapshot peak = idleDebugSnapshot(1600);
-  const IdleDebugSnapshot three_quarters = idleDebugSnapshot(2400);
-  const IdleDebugSnapshot wrapped = idleDebugSnapshot(kIdleBreathPeriodMs);
-  assert(start.breath_q8 == 0);
-  assert(start.halo_q8 == 0);
   assert(start.fade_opacity_q8 == 0);
-  assert(quarter.breath_q8 > start.breath_q8);
-  assert(peak.breath_q8 == 255);
-  assert(peak.halo_q8 == 255);
-  assert(three_quarters.breath_q8 == quarter.breath_q8);
-  assert(wrapped.breath_q8 == start.breath_q8);
   assert(idleDebugSnapshot(kIdleFadeInMs).fade_opacity_q8 == 255);
 
-  bool saw_quiet_phase = false;
-  bool saw_peak_halo = false;
-  for (uint32_t elapsed = 0; elapsed < 10u * kIdleBreathPeriodMs;
-       elapsed += kThinkingFrameIntervalMs) {
-    const GuardedFrame frame = renderFrame(IDLE, elapsed, 0, 7);
-    assertGuardsAndLevels(frame, IDLE, 2);
-    uint8_t lit = 0;
-    for (uint16_t index = 1; index <= kPixelCount; ++index) {
-      assert(frame[index] <= 2);
-      lit = static_cast<uint8_t>(lit + (frame[index] != 0 ? 1 : 0));
-    }
-    if (elapsed >= kIdleFadeInMs &&
-        idleDebugSnapshot(elapsed).halo_q8 == 0) {
-      saw_quiet_phase = saw_quiet_phase || (lit >= 3 && lit <= 4);
-    }
-    if (idleDebugSnapshot(elapsed).halo_q8 > 220) {
-      saw_peak_halo = saw_peak_halo || lit >= 5;
-    }
+  const GuardedFrame settled = renderFrame(IDLE, kIdleFadeInMs, 0, 7);
+  assertGuardsAndLevels(settled, IDLE, 7);
+  assert(settled[1 + 4 + 4 * kMatrixWidth] == 1);
+  assert(settled[1 + 6 + 4 * kMatrixWidth] == 1);
+  assert(settled[1 + 8 + 4 * kMatrixWidth] == 1);
+  for (uint32_t elapsed = kIdleFadeInMs; elapsed < 30000u; elapsed += 137u) {
+    assert(renderFrame(IDLE, elapsed, 0, 7) == settled);
   }
-  assert(saw_quiet_phase);
-  assert(saw_peak_halo);
+  assert(kIdleFadeFrameIntervalMs >= 16);
+  assert(kIdleFadeFrameIntervalMs <= 33);
+  assert(kIdleStaticRefreshIntervalMs >= 500);
+  assert(kIdleStaticRefreshIntervalMs <= 1000);
 
   // The small nucleus recedes while THINKING completes its existing 420 ms
   // fade. The endpoint is a fully advanced THINKING frame, not a restart.

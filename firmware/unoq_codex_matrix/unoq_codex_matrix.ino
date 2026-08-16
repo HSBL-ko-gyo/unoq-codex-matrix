@@ -47,6 +47,8 @@ uint32_t transition_started_ms = 0;
 uint32_t render_total_us = 0;
 uint16_t render_sample_count = 0;
 uint16_t render_max_us = 0;
+uint32_t missed_frame_count = 0;
+uint16_t largest_frame_lateness_ms = 0;
 
 int32_t setStateRpc(int32_t protocol_version, int32_t state,
                     int32_t sessions, int32_t requested_frame_interval_ms,
@@ -58,10 +60,19 @@ uint32_t getStatusRpc();
 uint32_t getVersionRpc();
 uint32_t getRenderMetricsRpc();
 
-uint16_t currentFrameIntervalMs() {
-  return transition_active
-             ? kThinkingFrameIntervalMs
-             : effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+uint16_t currentFrameIntervalMs(const uint32_t now_ms) {
+  if (transition_active) {
+    return kThinkingFrameIntervalMs;
+  }
+  if (displayed_state == IDLE) {
+    const bool entry_fade_due =
+        now_ms - state_entered_ms <= kIdleFadeInMs ||
+        last_frame_ms - state_entered_ms < kIdleFadeInMs;
+    return entry_fade_due
+               ? kIdleFadeFrameIntervalMs
+               : kIdleStaticRefreshIntervalMs;
+  }
+  return effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
 }
 
 void noteHeartbeat(const uint32_t now_ms) {
@@ -85,7 +96,7 @@ void enterState(const StateId state, const uint32_t now_ms) {
   displayed_state = state;
   state_entered_ms = now_ms;
   // Force the first frame of a new state on this loop iteration.
-  last_frame_ms = now_ms - currentFrameIntervalMs();
+  last_frame_ms = now_ms - currentFrameIntervalMs(now_ms);
 }
 
 void finishTransitionIfDue(const uint32_t now_ms) {
@@ -102,7 +113,7 @@ void finishTransitionIfDue(const uint32_t now_ms) {
                              displayed_state == THINKING
                          ? transition_started_ms
                          : now_ms;
-  last_frame_ms = now_ms - currentFrameIntervalMs();
+  last_frame_ms = now_ms - currentFrameIntervalMs(now_ms);
 }
 
 void applyPendingUpdates(const uint32_t now_ms) {
@@ -130,7 +141,7 @@ void applyPendingUpdates(const uint32_t now_ms) {
   if (pending.has_brightness) {
     brightness = pending.brightness;
     pending.has_brightness = false;
-    last_frame_ms = now_ms - currentFrameIntervalMs();
+    last_frame_ms = now_ms - currentFrameIntervalMs(now_ms);
   }
 
   if (pending.has_heartbeat) {
@@ -281,9 +292,23 @@ void loop() {
 
   // Unsigned subtraction is intentionally used throughout so millis() wrap is
   // handled correctly.
-  const uint16_t effective_frame_interval_ms = currentFrameIntervalMs();
+  const uint16_t effective_frame_interval_ms = currentFrameIntervalMs(now_ms);
   if (now_ms - last_frame_ms >= effective_frame_interval_ms) {
-    last_frame_ms = now_ms;
+    const uint32_t elapsed_ms = now_ms - last_frame_ms;
+    const uint32_t lateness_ms = elapsed_ms - effective_frame_interval_ms;
+    if (lateness_ms > largest_frame_lateness_ms) {
+      largest_frame_lateness_ms = lateness_ms > 0xFFFFu
+                                      ? 0xFFFFu
+                                      : static_cast<uint16_t>(lateness_ms);
+    }
+    // Keep the cadence phase-locked.  When the loop is materially late, drop
+    // stale frames and resume from the present rather than rendering a burst.
+    if (lateness_ms >= effective_frame_interval_ms) {
+      missed_frame_count += lateness_ms / effective_frame_interval_ms;
+      last_frame_ms = now_ms;
+    } else {
+      last_frame_ms += effective_frame_interval_ms;
+    }
     const uint32_t render_started_us = micros();
     if (transition_active) {
       renderTransition(transition_from_state, displayed_state, now_ms,
