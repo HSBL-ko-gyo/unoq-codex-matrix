@@ -13,7 +13,7 @@ All notable changes are documented here.
 - Added the dependency-free native C Hook as the low-latency primary, with an
   install-time private compiler fallback and the portable shell Hook retained as
   a compatibility fallback.
-- Qualified the final native Hook at p95 3.615 ms against the live daemon and passed
+- Qualified the final native Hook at p95 3.573 ms against the live daemon and passed
   sanitizer, malformed-input, and Python differential coverage.
 - Compiled and flashed the UNO Q firmware; verified RPC, all state IDs, TTLs,
   rapid updates, heartbeat OFFLINE behavior, and daemon recovery on hardware.

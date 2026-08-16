@@ -60,7 +60,7 @@ The alpha hardware pass used Debian 13 on AArch64, Arduino Router 0.9.0, `arduin
 - Compiled and uploaded the STM32U585 firmware through `arduino-cli`; protocol version 1 and firmware version 0.1.0 were returned over Router RPC.
 - Exercised all state IDs, brightness clamping, 1,000 rapid state changes, SUCCESS and transient-ERROR TTLs, daemon restart, heartbeat timeout to OFFLINE, and recovery to the current state.
 - Ran a dedicated local Codex smoke task without any LED instruction and observed Hook-driven state changes, including a real permission request and subagent lifecycle.
-- Qualified the final native Hook against the live daemon under the board's existing high CPU load: 200 measured runs after 20 warmups had median 3.251 ms, p95 3.615 ms, and maximum 5.540 ms. Absent-socket and dummy-receiver p95 values were 3.513 ms and 3.543 ms.
+- Qualified the final native Hook against the live daemon under the board's existing high CPU load: 200 measured runs after 20 warmups had median 3.285 ms, p95 3.573 ms, and maximum 3.746 ms. Absent-socket and dummy-receiver p95 values were 3.513 ms and 3.543 ms.
 - Passed 47 native integration tests under GCC 14 with `-Werror`, AddressSanitizer, and UndefinedBehaviorSanitizer, plus 300 malformed random inputs and 500 valid differential cases against the Python reference.
 - Completed a 1,801.2-second continuous hardware animation/RPC soak with no RPC failure, sampling THINKING, TESTING, OFFLINE, WRITING, WAITING, and IDLE during the run.
 - Did not install the system service on the investigated board because non-interactive administrative access was unavailable. The daemon and control sockets were exercised manually without altering the board's privilege configuration.

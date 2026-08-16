@@ -56,7 +56,7 @@ alpha実機試験はDebian 13/AArch64、Arduino Router 0.9.0、`arduino:zephyr` 
 - `arduino-cli`経由でSTM32U585 firmwareをcompile/uploadし、Router RPCでprotocol version 1とfirmware version 0.1.0を取得しました。
 - 全state ID、brightness clamp、1,000回の高速state変更、SUCCESS/一時ERROR TTL、daemon再起動、heartbeat停止によるOFFLINEと復帰を確認しました。
 - LED指示を含めない専用Codex smoke taskで、実際のpermission requestとsubagentを含むHook駆動の状態変化を確認しました。
-- board上の既存高CPU負荷を維持したままlive daemonに対する最終native Hookを計測し、20回warmup後の200回でmedian 3.251 ms、p95 3.615 ms、最大5.540 msでした。socket不在時はp95 3.513 ms、dummy receiver稼働時はp95 3.543 msでした。
+- board上の既存高CPU負荷を維持したままlive daemonに対する最終native Hookを計測し、20回warmup後の200回でmedian 3.285 ms、p95 3.573 ms、最大3.746 msでした。socket不在時はp95 3.513 ms、dummy receiver稼働時はp95 3.543 msでした。
 - GCC 14の`-Werror`、AddressSanitizer、UndefinedBehaviorSanitizerでnative integration test 47件、malformed random input 300件、Python referenceとのvalid differential 500件を通過しました。
 - 1,801.2秒の連続hardware animation/RPC soakをRPC failureなしで完走し、途中でTHINKING、TESTING、OFFLINE、WRITING、WAITING、IDLEをsampleしました。
 - 調査機では非対話の管理者権限を利用できなかったため、system serviceの導入は行っていません。権限設定を変更せず、daemonとcontrol socketを手動起動で検証しました。

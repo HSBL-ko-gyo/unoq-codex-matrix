@@ -200,7 +200,7 @@ warmups followed by 200 measured processes:
 |---|---:|---:|
 | daemon event socket absent | 3.513 ms | 3.707 ms |
 | dummy Unix-datagram receiver | 3.543 ms | 3.724 ms |
-| actual running daemon (final source; median 3.251 ms) | 3.615 ms | 5.540 ms |
+| actual running daemon (final source; median 3.285 ms) | 3.573 ms | 3.746 ms |
 
 The live-daemon path therefore met the required p95 below 50 ms with substantial
 margin. The native suite also passed 47 of 47 integration cases under GCC 14
