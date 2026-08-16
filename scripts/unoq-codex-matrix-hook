@@ -1,0 +1,262 @@
+#!/bin/sh
+# UNOQ_CODEX_MATRIX_HOOK=1
+# A dependency-light, fail-open Codex lifecycle hook for the UNO Q Linux side.
+
+set +e
+PATH=/usr/bin:/bin
+LC_ALL=C
+export PATH LC_ALL
+ulimit -c 0 2>/dev/null || :
+
+MAX_INPUT_BYTES=65536
+DEFAULT_SOCKET=/run/unoq-codex-matrix/events.sock
+
+# Preserve trailing newlines with a sentinel.  One extra byte is read only to
+# reject oversized input; nothing is written to disk or retained after exit.
+raw=$({ head -c $((MAX_INPUT_BYTES + 1)); printf x; } 2>/dev/null)
+raw=${raw%x}
+if [ "${#raw}" -gt "$MAX_INPUT_BYTES" ]; then
+  case "$raw" in
+    *\"hook_event_name\"*\"Stop\"*|*\"hookEventName\"*\"Stop\"*|*\"event_name\"*\"Stop\"*|\
+    *\"hook_event_name\"*\"SubagentStop\"*|*\"hookEventName\"*\"SubagentStop\"*|*\"event_name\"*\"SubagentStop\"*) printf '{}' ;;
+  esac
+  exit 0
+fi
+
+socket_path=${UNOQ_CODEX_MATRIX_EVENT_SOCKET:-$DEFAULT_SOCKET}
+case "$socket_path" in
+  /*) ;;
+  *) socket_path=$DEFAULT_SOCKET ;;
+esac
+# A comma starts socat address options, so it is not valid in the private test
+# override.  Production always uses DEFAULT_SOCKET.
+case "$socket_path" in
+  *,*) socket_path=$DEFAULT_SOCKET ;;
+esac
+
+# Avoid even jq startup when the daemon is absent.  Stop-like candidates are
+# strictly decoded because Codex requires an empty decision object from valid
+# Stop and SubagentStop hooks regardless of display availability.
+if [ ! -S "$socket_path" ]; then
+  case "$raw" in
+    *Stop*|*stop*)
+      reply=$(jq -Rrsc '
+        try fromjson catch null
+        | select(type == "object")
+        | (.hook_event_name // .hookEventName // .event_name // .event // "")
+        | select(type == "string")
+        | ascii_downcase | gsub("[^a-z0-9]"; "")
+        | select(. == "stop" or . == "subagentstop")
+        | "{}"
+      ' 2>/dev/null <<EOF
+$raw
+EOF
+      )
+      [ "$reply" = "{}" ] && printf '{}'
+      ;;
+  esac
+  exit 0
+fi
+
+IFS=' ' read -r uptime_value ignored </proc/uptime 2>/dev/null || uptime_value=0
+
+# jq is the privacy boundary: the output is exactly the protocol-v1 allowlist.
+# Keep the frequent non-tool path small enough for a short-lived hook.  Tool
+# events take the richer in-memory classifier below.
+case "$raw" in
+  *\"hook_event_name\"*UserPromptSubmit*) event_mode=prompt ;;
+  *PreToolUse*|*pretooluse*|*pre_tool_use*|*PostToolUse*|*posttooluse*|*post_tool_use*) event_mode=tool ;;
+  *) event_mode=lifecycle ;;
+esac
+
+if [ "$event_mode" = prompt ]; then
+  # UserPromptSubmit is the hottest lifecycle path, so keep its strict filter
+  # especially small.  This is what makes sub-50 ms p95 practical on UNO Q.
+  result=$(printf '%s' "$raw" | jq -Rrsc --arg uptime "$uptime_value" '
+    (try fromjson catch null) as $p
+    | ($p.turn_id // "") as $turn
+    | select(($p | type) == "object" and $p.hook_event_name == "UserPromptSubmit"
+        and ($p.session_id | type) == "string" and ($p.session_id | length) > 0
+        and ($p.session_id | length) <= 256 and (($p.session_id | contains("\u0000")) | not)
+        and ($turn | type) == "string" and ($turn | length) <= 256
+        and (($turn | contains("\u0000")) | not))
+    | (($uptime | tonumber? // 0) * 1000000000 | floor) as $now
+    | ({v:1,event:"user_prompt",session:$p.session_id,turn:$turn,tool_use:"",tool:"",
+        state:"thinking",failed:false,time_ns:$now} | tojson)
+    | "0\t" + .
+  ' 2>/dev/null)
+elif [ "$event_mode" = lifecycle ]; then
+  result=$(jq -Rrsc --arg uptime "$uptime_value" '
+    def pick($object; $keys):
+      first($keys[] as $key | select($object | has($key)) | $object[$key]) // null;
+    def text($value; $maximum):
+      if $value == null then ""
+      elif ($value | type) == "string" and ($value | length) <= $maximum
+        and (($value | contains("\u0000")) | not) then $value
+      else error("invalid text") end;
+    (try fromjson catch null) as $p
+    | if ($p | type) != "object" then empty else
+        (pick($p; ["hook_event_name","event_name","hookEventName","event"])) as $raw_hook
+        | if ($raw_hook | type) != "string" then empty else
+            ($raw_hook | ascii_downcase | gsub("[^a-z0-9]"; "")) as $hook
+            | ({sessionstart:["session_start","idle"], userpromptsubmit:["user_prompt","thinking"],
+                pretooluse:["pre_tool","command"], permissionrequest:["permission","waiting"],
+                posttooluse:["post_tool","thinking"], precompact:["pre_compact","thinking"],
+                postcompact:["post_compact","thinking"], subagentstart:["subagent_start","subagent"],
+                subagentstop:["subagent_stop","thinking"], stop:["stop","success"],
+                sessionend:["session_end","idle"]}[$hook]) as $map
+            | (pick($p; ["session_id","sessionId","conversation_id","thread_id","session"])) as $session
+            | (if ($hook == "stop" or $hook == "subagentstop") then "1" else "0" end) as $reply
+            | if $map == null or ($session | type) != "string" or ($session | length) == 0
+                or ($session | length) > 256 or ($session | contains("\u0000")) then $reply + "\t"
+              else
+                (try text(pick($p; ["turn_id","turnId","turn"]); 256) catch null) as $turn
+                | (try text(pick($p; ["tool_use_id","toolUseId","item_id","tool_use"]); 256) catch null) as $use
+                | if $turn == null or $use == null then $reply + "\t"
+                  else (($uptime | tonumber? // 0) * 1000000000 | floor) as $now
+                    | ({v:1,event:$map[0],session:$session,turn:$turn,tool_use:$use,tool:"",
+                        state:$map[1],failed:false,time_ns:$now} | tojson) as $wire
+                    | $reply + "\t" + $wire
+                  end
+              end
+          end
+      end
+  ' 2>/dev/null <<EOF
+$raw
+EOF
+  )
+else
+  # Command and response bodies are used only for coarse in-memory
+  # classification and are omitted from the resulting datagram.
+  result=$(jq -Rrsc --arg uptime "$uptime_value" '
+  def pick($object; $keys):
+    first($keys[] as $key | select($object | has($key)) | $object[$key]) // null;
+
+  def optional_text($value; $maximum):
+    if $value == null then ""
+    elif ($value | type) == "string" and ($value | length) <= $maximum
+      and (($value | contains("\u0000")) | not) then $value
+    else error("invalid text") end;
+
+  # Minimal quote-aware sanitization, not shell evaluation.  Separators inside
+  # quoted arguments are masked so `echo "pytest && make"` is not mistaken for
+  # two commands.  A malformed fragment becomes null and therefore COMMAND.
+  def shell_text:
+    reduce (explode[]) as $c
+      ({sq:false,dq:false,esc:false,ok:true,out:[]};
+       if (.ok | not) then .
+       elif .esc then .esc=false | .out += [if ([38,40,41,59,124] | index($c)) == null then $c else 32 end]
+       elif $c == 92 and (.sq | not) then .esc=true
+       elif $c == 39 and (.dq | not) then .sq=(.sq | not)
+       elif $c == 34 and (.sq | not) then .dq=(.dq | not)
+       elif ($c == 0 or $c == 10 or $c == 13) and (.sq or .dq) then .ok=false
+       elif (.sq or .dq) and ([38,40,41,59,124] | index($c)) != null then .out += [32]
+       else .out += [$c] end)
+    | if .ok and (.sq | not) and (.dq | not) and (.esc | not) then (.out | implode) else null end;
+
+  def command_state($command):
+    if ($command | type) != "string" then "command"
+    else
+      ($command | shell_text) as $shell
+      | if $shell == null then "command" else
+        ($shell | gsub("\\r\\n|\\r|\\n"; ";")) as $c
+        | ("(?:^|[;&|()]\\s*)\\s*"
+         + "(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s;&|()]+|sudo|env|command|exec|nohup|time)(?:\\s+|$))*"
+         + "(?:(?:bash|dash|fish|ksh|sh|zsh)\\s+-l?c\\s+)?/?(?:[^\\s/]+/)*") as $start
+      | if ($c | test($start + "(?:arduino-cli[^;&|()]*\\supload(?:\\s|$)|(?:remoteocd|openocd|dfu-util|bossac)(?:\\s|$)|west[^;&|()]*\\sflash(?:\\s|$))"; "i"))
+        then "flashing"
+        elif ($c | test($start + "(?:(?:pytest|pytest-3|ctest|jest|vitest)(?:\\s|$)|(?:python[0-9.]*|pypy[0-9.]*)\\s+-m\\s+pytest(?:\\s|$)|(?:npm|pnpm|yarn)\\s+(?:run\\s+)?test(?:\\s|$)|(?:cargo|go|meson)\\s+test(?:\\s|$)|make[^;&|()]*\\stest(?:\\s|$)|(?:npx|pnpx)\\s+(?:jest|vitest)(?:\\s|$))"; "i"))
+        then "testing"
+        elif ($c | test($start + "(?:arduino-cli[^;&|()]*\\scompile(?:\\s|$)|cmake[^;&|()]*--build(?:\\s|$)|(?:ninja|make)(?:\\s|$)|cargo\\s+build(?:\\s|$)|(?:npm|pnpm|yarn)\\s+run\\s+build(?:\\s|$)|vite\\s+build(?:\\s|$)|(?:npx|pnpx)\\s+vite\\s+build(?:\\s|$))"; "i"))
+        then "building"
+        else "command" end
+      end
+    end;
+
+  def tool_state($tool; $input):
+    ($tool | ascii_downcase | gsub("[^a-z0-9]+"; "_") | gsub("^_+|_+$"; "")) as $name
+    | if ($name | test("(^|_)(bash|shell|exec_command|run_command)$")) then
+        (if ($input | type) == "string" then $input
+         elif ($input | type) == "object" then pick($input; ["command","cmd","script"])
+         else null end) as $command
+        | (if ($command | type) == "array" and all($command[]; type == "string")
+           then ($command | join("\n")) else $command end)
+        | command_state(.)
+      elif ($name | test("(^|_)(apply_patch|edit|multiedit|notebookedit|write|write_file|create_file)$")) then "writing"
+      elif ($name | test("(^|_)(read|read_file|grep|glob|search|find|list_directory|list_files|search_query)$")) then "reading"
+      elif ($name | test("(^|_)(agent|spawn_agent|subagent_start)$")) then "subagent"
+      else "command" end;
+
+  def meaningful: . != null and . != false and . != 0 and . != "" and . != [] and . != {};
+  def explicit_failure:
+    if type != "object" then false
+    else
+      ([.exit_code?,.exitCode?,.return_code?,.returnCode?]
+       | any(. != null and (type != "boolean") and ((tonumber? // 0) != 0)))
+      or ((.status? // "") as $status
+          | ($status | type) == "string"
+            and (["failed","failure","error"]
+                 | index($status | ascii_downcase | gsub("^\\s+|\\s+$"; ""))) != null)
+      or (.success? == false) or (.is_error? == true) or (.isError? == true)
+      or (.error? | meaningful) or (.tool_error? | meaningful) or (.toolError? | meaningful)
+      or ((.metadata? | type) == "object" and (.metadata | explicit_failure))
+    end;
+
+  def normalize($payload; $now):
+    (pick($payload; ["hook_event_name","event_name","hookEventName","event"])) as $raw_hook
+    | if ($raw_hook | type) != "string" then error("missing hook") else . end
+    | ($raw_hook | ascii_downcase | gsub("[^a-z0-9]"; "")) as $hook
+    | ({sessionstart:["session_start","idle"], userpromptsubmit:["user_prompt","thinking"],
+        pretooluse:["pre_tool","command"], permissionrequest:["permission","waiting"],
+        posttooluse:["post_tool","thinking"], precompact:["pre_compact","thinking"],
+        postcompact:["post_compact","thinking"], subagentstart:["subagent_start","subagent"],
+        subagentstop:["subagent_stop","thinking"], stop:["stop","success"],
+        sessionend:["session_end","idle"]}[$hook]) as $map
+    | if $map == null then error("unknown hook") else . end
+    | (pick($payload; ["session_id","sessionId","conversation_id","thread_id","session"])) as $session
+    | if ($session | type) != "string" or ($session | length) == 0 or ($session | length) > 256
+        or ($session | contains("\u0000")) then error("invalid session") else . end
+    | optional_text(pick($payload; ["turn_id","turnId","turn"]); 256) as $turn
+    | optional_text(pick($payload; ["tool_use_id","toolUseId","item_id","tool_use"]); 256) as $tool_use
+    | optional_text(pick($payload; ["tool_name","toolName","tool"]); 128) as $tool
+    | (if $map[0] == "pre_tool" then
+         [tool_state($tool; pick($payload; ["tool_input","toolInput","input"])), false]
+       elif $map[0] == "post_tool" then
+         ((pick($payload; ["tool_response","toolResponse","tool_result","response"]) | explicit_failure)
+           or ($payload | explicit_failure)) as $failed
+         | [if $failed then "error" else "thinking" end, $failed]
+       else [$map[1], false] end) as $classified
+    | {v:1,event:$map[0],session:$session,turn:$turn,tool_use:$tool_use,
+       tool:(if ($map[0] == "pre_tool" or $map[0] == "post_tool") then $tool else "" end),
+       state:$classified[0],failed:$classified[1],time_ns:$now};
+
+  (try fromjson catch null) as $payload
+  | if ($payload | type) != "object" then empty
+    else
+      (pick($payload; ["hook_event_name","event_name","hookEventName","event"])) as $reply_hook
+      | (if ($reply_hook | type) == "string"
+            and (($reply_hook | ascii_downcase | gsub("[^a-z0-9]"; "")) as $h
+                 | $h == "stop" or $h == "subagentstop") then "1" else "0" end) as $reply
+      | (($uptime | tonumber? // 0) * 1000000000 | floor) as $now
+      | (try (normalize($payload; $now) | tojson) catch "") as $wire
+      | $reply + "\t" + $wire
+    end
+' 2>/dev/null <<EOF
+$raw
+EOF
+  )
+fi
+
+tab=$(printf '\t')
+case "$result" in
+  1"$tab"*) printf '{}' ;;
+esac
+normalized=${result#*"$tab"}
+if [ -n "$result" ] && [ "$normalized" != "$result" ] && [ -n "$normalized" ] \
+    && [ "${#normalized}" -le 4096 ]; then
+  # nonblock makes a full receive queue another fail-open condition.
+  printf '%s' "$normalized" \
+    | socat -u - "UNIX-SENDTO:$socket_path,nonblock" >/dev/null 2>&1 || :
+fi
+
+exit 0
