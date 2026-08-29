@@ -1,5 +1,5 @@
 {
-  "brightness": 3,
+  "brightness": 5,
   "frame_interval_ms": 100,
   "heartbeat_interval_s": 3,
   "offline_timeout_s": 12,

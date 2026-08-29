@@ -87,7 +87,7 @@ State IDs are a versioned wire ABI shared by Python and C++. This table describe
 | 12 | OFFLINE | MCU heartbeat timeout | Disconnected indicator |
 | 13 | SUBAGENT | Subagent activity | Independently moving dots |
 
-The 13 LEDs in the bottom row form the Codex quota bar. It uses the lower remaining value across the short and long quota windows and fills from left to right in roughly 7.7% steps. The optional upper-right indicator independently shows concurrent tracked sessions, so both can remain visible. If quota data is unavailable or stale, only the bottom bar disappears. Aggregation, precedence, and expiry semantics are defined in [the protocol](docs/protocol.md).
+The 13 LEDs in the top row form the Codex quota bar. It uses the lower remaining value across the short and long quota windows and fills from left to right in roughly 7.7% steps. The optional lower-right indicator independently shows concurrent tracked sessions, so both can remain visible. If quota data is unavailable or stale, only the top bar disappears. Aggregation, precedence, and expiry semantics are defined in [the protocol](docs/protocol.md).
 
 ## CLI
 

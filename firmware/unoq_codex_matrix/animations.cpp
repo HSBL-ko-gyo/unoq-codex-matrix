@@ -20,6 +20,11 @@ inline uint8_t lowLevel(const uint8_t brightness) {
   return brightness == 0 ? 0 : 1;
 }
 
+inline uint8_t indicatorLevel(const uint8_t brightness) {
+  const uint8_t configured = highLevel(brightness);
+  return configured == 0 ? 0 : (configured == 1 ? 1 : 2);
+}
+
 inline uint8_t scaledLevel(const uint8_t brightness,
                            const uint8_t nominal_level) {
   const uint8_t high = highLevel(brightness);
@@ -644,20 +649,21 @@ void renderSubagent(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
 
 void addActiveCount(uint8_t frame[kPixelCount], const uint8_t active_count,
                     const uint8_t brightness) {
+  constexpr uint8_t kActiveCountRow = kMatrixHeight - 1;
   uint8_t dots = active_count;
   if (dots > kMaxActiveCountDots) {
     dots = kMaxActiveCountDots;
   }
   for (uint8_t i = 0; i < dots; ++i) {
-    setPixel(frame, static_cast<int16_t>(kMatrixWidth - 1 - i), 0,
-             lowLevel(brightness));
+    setPixel(frame, static_cast<int16_t>(kMatrixWidth - 1 - i),
+             kActiveCountRow, indicatorLevel(brightness));
   }
 }
 
 void addQuotaBar(uint8_t frame[kPixelCount],
                  const uint8_t remaining_percent,
                  const uint8_t brightness) {
-  constexpr uint8_t kQuotaRow = kMatrixHeight - 1;
+  constexpr uint8_t kQuotaRow = 0;
   for (uint8_t x = 0; x < kMatrixWidth; ++x) {
     frame[static_cast<uint16_t>(kQuotaRow) * kMatrixWidth + x] = 0;
   }
@@ -672,7 +678,7 @@ void addQuotaBar(uint8_t frame[kPixelCount],
                                       kMaxQuotaPercent - 1u) /
                                      kMaxQuotaPercent);
   for (uint8_t x = 0; x < segments; ++x) {
-    setPixel(frame, x, kQuotaRow, lowLevel(brightness));
+    setPixel(frame, x, kQuotaRow, indicatorLevel(brightness));
   }
 }
 

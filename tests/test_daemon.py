@@ -101,7 +101,7 @@ def test_invalid_config_fields_fall_back_individually(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     config = load_config(str(path))
-    assert config.brightness == 3
+    assert config.brightness == 5
     assert config.frame_interval_ms == 75
     assert config.heartbeat_interval_s == 3
     assert config.show_active_count is True
@@ -109,6 +109,13 @@ def test_invalid_config_fields_fall_back_individually(tmp_path: Path) -> None:
     assert config.quota_refresh_interval_s == 60
     assert config.quota_stale_after_s == 900
     assert config.log_level == "INFO"
+
+
+def test_config_accepts_full_matrix_brightness(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"brightness": 7}), encoding="utf-8")
+
+    assert load_config(str(path)).brightness == 7
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="requires Unix sockets")

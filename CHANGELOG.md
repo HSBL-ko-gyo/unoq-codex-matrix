@@ -4,10 +4,11 @@ All notable changes are documented here.
 
 ## [Unreleased]
 
-- Added a bottom-row 13-segment Codex quota bar backed by the official
-  app-server rate-limit method. It coexists with the upper-right active-session
-  dots, hides when stale or unavailable, and remains backward compatible with
-  pre-0.2.0 firmware.
+- Added a top-row 13-segment Codex quota bar backed by the official app-server
+  rate-limit method. It coexists with brighter lower-right active-session dots,
+  hides when stale or unavailable, and remains backward compatible with
+  pre-0.2.0 firmware. The full matrix brightness range 0..7 is configurable,
+  with level 5 as the default.
 - Smoothed THINKING with a 35 ms render cadence while preserving the 4.2 s
   logical lap, Q8 path and bubble coordinates, bilinear 3-bit intensity
   distribution, continuous trail decay, and temporally dithered residuals.

@@ -434,9 +434,10 @@ int main() {
                   static_cast<uint8_t>(transition % 4), true);
   }
 
-  // The bottom row is a left-to-right 13-segment quota bar. A non-zero
-  // remainder always keeps at least one segment visible, while the legacy
-  // active-session dots remain visible in the upper-right corner.
+  // The top row is a left-to-right 13-segment quota bar. A non-zero remainder
+  // always keeps at least one segment visible, while the active-session dots
+  // remain visible in the lower-right corner. Both indicators use level two
+  // at normal brightness so they remain legible without dominating the state.
   const GuardedFrame quota_empty =
       renderFrame(IDLE, 1000, 0, 5, 3, true, 0, true);
   const GuardedFrame quota_one =
@@ -445,17 +446,18 @@ int main() {
       renderFrame(IDLE, 1000, 0, 5, 3, true, 50, true);
   const GuardedFrame quota_full =
       renderFrame(IDLE, 1000, 0, 5, 3, true, 100, true);
-  const uint16_t quota_row =
-      1 + static_cast<uint16_t>(kMatrixHeight - 1) * kMatrixWidth;
+  const uint16_t quota_row = 1;
   for (uint8_t x = 0; x < kMatrixWidth; ++x) {
     assert(quota_empty[quota_row + x] == 0);
-    assert(quota_one[quota_row + x] == (x == 0 ? 1 : 0));
-    assert(quota_half[quota_row + x] == (x < 7 ? 1 : 0));
-    assert(quota_full[quota_row + x] == 1);
+    assert(quota_one[quota_row + x] == (x == 0 ? 2 : 0));
+    assert(quota_half[quota_row + x] == (x < 7 ? 2 : 0));
+    assert(quota_full[quota_row + x] == 2);
   }
-  assert(quota_half[1 + kMatrixWidth - 1] >= 1);
-  assert(quota_half[1 + kMatrixWidth - 2] >= 1);
-  assert(quota_half[1 + kMatrixWidth - 3] >= 1);
+  const uint16_t count_row =
+      1 + static_cast<uint16_t>(kMatrixHeight - 1) * kMatrixWidth;
+  assert(quota_half[count_row + kMatrixWidth - 1] >= 2);
+  assert(quota_half[count_row + kMatrixWidth - 2] >= 2);
+  assert(quota_half[count_row + kMatrixWidth - 3] >= 2);
   const GuardedFrame offline_with_quota =
       renderFrame(OFFLINE, 1000, 0, 5, 0, false, 100, true);
   const GuardedFrame offline_without_quota =

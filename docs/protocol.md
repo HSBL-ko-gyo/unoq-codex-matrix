@@ -280,7 +280,7 @@ Result: `1` when accepted, `0` when rejected.
 
 Parameters: `[protocol_version, level]`
 
-Result for protocol v1: effective brightness. Firmware clamps it to project range 0..5; the physical 3-bit matrix range is 0..7. A protocol mismatch leaves brightness unchanged; the subsequent heartbeat/version checks make the overall publish fail.
+Result for protocol v1: effective brightness. Firmware clamps it to the physical 3-bit matrix range 0..7. A protocol mismatch leaves brightness unchanged; the subsequent heartbeat/version checks make the overall publish fail.
 
 #### `codex_matrix_set_quota`
 
@@ -298,11 +298,11 @@ Result: `1` when accepted, `0` when rejected. The daemon reads firmware version
 before publishing and does not call this method on older firmware, preserving
 the pre-quota state path.
 
-When visible, the bottom matrix row is reserved for a left-to-right 13-segment
+When visible, the top matrix row is reserved for a left-to-right 13-segment
 bar. Zero percent lights no segment; every non-zero value lights at least one;
 100 percent lights all 13. The renderer uses ceiling division, so one segment
 represents approximately 7.7 percentage points. OFF and OFFLINE omit the bar.
-The upper-right active-session dots are independent and can be shown at the same
+The lower-right active-session dots are independent and can be shown at the same
 time. If quota is unavailable or stale, the daemon hides only the quota bar.
 
 #### `codex_matrix_get_status`

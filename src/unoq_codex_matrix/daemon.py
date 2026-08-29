@@ -31,7 +31,7 @@ LOG = logging.getLogger("unoq-codex-matrixd")
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    brightness: int = 3
+    brightness: int = 5
     frame_interval_ms: int = 100
     heartbeat_interval_s: float = 3.0
     offline_timeout_s: float = 12.0
@@ -46,7 +46,7 @@ class Config:
 
 
 _RANGES: dict[str, tuple[float, float]] = {
-    "brightness": (0, 5),
+    "brightness": (0, 7),
     "frame_interval_ms": (50, 150),
     "heartbeat_interval_s": (2, 5),
     "offline_timeout_s": (6, 120),

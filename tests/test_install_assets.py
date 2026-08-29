@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_example_config_has_safe_documented_defaults() -> None:
     config = json.loads((ROOT / "config" / "config.example.json").read_text(encoding="utf-8"))
     assert config == {
-        "brightness": 3,
+        "brightness": 5,
         "frame_interval_ms": 100,
         "heartbeat_interval_s": 3,
         "offline_timeout_s": 12,

@@ -154,7 +154,7 @@ codex_matrix_get_version
 codex_matrix_get_render_metrics
 ```
 
-Callbacks perform bounded plain-data updates only. `loop()` applies pending values, checks heartbeat age with unsigned subtraction, chooses OFFLINE when necessary, and draws at the configured 50–150 ms interval. No dynamic allocation or long `delay()` occurs in the animation loop. Normal project brightness is capped at 5 even though the matrix supports grayscale levels 0–7. When current quota data is visible, the bottom row is cleared and redrawn as a left-to-right 13-segment bar after the state animation, so it remains stable through fades and transitions. The upper-right active-session dots remain independently visible.
+Callbacks perform bounded plain-data updates only. `loop()` applies pending values, checks heartbeat age with unsigned subtraction, chooses OFFLINE when necessary, and draws at the configured 50–150 ms interval. No dynamic allocation or long `delay()` occurs in the animation loop. The configurable brightness uses the matrix's full grayscale range 0–7 and defaults to 5. When current quota data is visible, the top row is cleared and redrawn as a left-to-right 13-segment bar after the state animation, so it remains stable through fades and transitions. The lower-right active-session dots remain independently visible.
 
 At boot, firmware renders OFFLINE. A valid state publish also counts as a heartbeat. When heartbeats resume after a timeout or restart, the latest complete publish restores the daemon-selected state.
 
