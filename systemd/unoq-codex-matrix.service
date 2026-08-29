@@ -8,6 +8,8 @@ After=arduino-router.service
 Type=simple
 User=arduino
 Group=arduino
+Environment=HOME=/home/arduino
+Environment=PATH=/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/unoq-codex-matrix/venv/bin/unoq-codex-matrixd --config /etc/unoq-codex-matrix/config.json
 RuntimeDirectory=unoq-codex-matrix
 RuntimeDirectoryMode=0750
@@ -16,7 +18,7 @@ RestartSec=2
 NoNewPrivileges=true
 PrivateTmp=true
 UMask=0027
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target

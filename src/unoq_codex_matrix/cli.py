@@ -24,6 +24,12 @@ def _age(value: Any) -> str:
     return f"{seconds:.1f}s"
 
 
+def _percentage(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return "unknown"
+    return f"{value}%"
+
+
 def _print_status(response: dict[str, Any]) -> None:
     fields = (
         ("daemon status", response.get("daemon_status", "unknown")),
@@ -31,10 +37,22 @@ def _print_status(response: dict[str, Any]) -> None:
         ("MCU protocol version", response.get("mcu_protocol_version", "unknown")),
         ("current global state", response.get("current_state", "unknown")),
         ("active session count", response.get("active_session_count", 0)),
+        (
+            "Codex quota remaining",
+            _percentage(response.get("codex_quota_remaining_percent")),
+        ),
+        (
+            "Codex quota source",
+            response.get("codex_quota_source_status", "unknown"),
+        ),
         ("last hook event age", _age(response.get("last_hook_event_age_s"))),
         ("last MCU heartbeat age", _age(response.get("last_mcu_heartbeat_age_s"))),
         ("brightness", response.get("brightness", "unknown")),
         ("firmware version", response.get("firmware_version", "unknown")),
+        (
+            "firmware quota bar",
+            response.get("firmware_quota_bar_supported", "unknown"),
+        ),
     )
     width = max(len(name) for name, _ in fields)
     for name, value in fields:

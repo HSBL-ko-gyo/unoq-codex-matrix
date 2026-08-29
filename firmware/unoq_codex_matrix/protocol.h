@@ -25,7 +25,7 @@ enum StateId : uint8_t {
 
 constexpr uint8_t kProtocolVersion = 1;
 constexpr uint8_t kFirmwareMajor = 0;
-constexpr uint8_t kFirmwareMinor = 1;
+constexpr uint8_t kFirmwareMinor = 2;
 constexpr uint8_t kFirmwarePatch = 0;
 
 constexpr uint8_t kMatrixWidth = 13;
@@ -36,6 +36,7 @@ constexpr uint16_t kPixelCount = kMatrixWidth * kMatrixHeight;
 // continuously driving the LEDs at their maximum level.
 constexpr uint8_t kMaxBrightness = 5;
 constexpr uint8_t kMaxActiveCountDots = 3;
+constexpr uint8_t kMaxQuotaPercent = 100;
 constexpr uint16_t kDefaultFrameIntervalMs = 100;
 constexpr uint16_t kMinFrameIntervalMs = 50;
 constexpr uint16_t kMaxFrameIntervalMs = 150;

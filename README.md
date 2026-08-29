@@ -18,12 +18,13 @@ Run `unoq-codex-matrix demo` to cycle through the available states and return th
 flowchart LR
     Codex["Codex on UNO Q Linux"] -->|"Lifecycle Hooks"| Hook["Fail-open local Hook"]
     Hook -->|"Unix datagram"| Daemon["Session aggregator"]
+    Daemon <-->|"Official account/rateLimits/read"| AppServer["Codex app-server"]
     Daemon -->|"MessagePack RPC"| Router["Arduino Router"]
     Router --> MCU["STM32U585 firmware"]
     MCU --> Matrix["8x13 LED matrix"]
 ```
 
-The Hook sends a privacy-reduced event without waiting for a response. The daemon aggregates active sessions and owns Router connectivity; the MCU firmware renders the selected state. See [Architecture](docs/architecture.md) for component and trust boundaries.
+The Hook sends a privacy-reduced event without waiting for a response. The daemon aggregates active sessions, reads the remaining quota through the official Codex app-server account API, and owns Router connectivity; the MCU firmware renders the selected state and quota bar. See [Architecture](docs/architecture.md) for component and trust boundaries.
 
 ## Install
 
@@ -61,6 +62,7 @@ After installation, open `/hooks` in Codex, review the entries for `/usr/local/b
 - `Arduino_LED_Matrix` and `Arduino_RouterBridge` 0.4.3 (pinned by the firmware flash script).
 - Python 3.11 or later.
 - A Codex build that supports user lifecycle Hooks.
+- Codex app-server with `account/rateLimits/read` for the quota bar. State display continues when quota data is unavailable.
 
 Known tested versions are recorded in [validation history](docs/validation-history.md).
 
@@ -85,7 +87,7 @@ State IDs are a versioned wire ABI shared by Python and C++. This table describe
 | 12 | OFFLINE | MCU heartbeat timeout | Disconnected indicator |
 | 13 | SUBAGENT | Subagent activity | Independently moving dots |
 
-An optional corner indicator shows concurrent tracked sessions. Aggregation, precedence, and expiry semantics are defined in [the protocol](docs/protocol.md).
+The 13 LEDs in the bottom row form the Codex quota bar. It uses the lower remaining value across the short and long quota windows and fills from left to right in roughly 7.7% steps. The optional upper-right indicator independently shows concurrent tracked sessions, so both can remain visible. If quota data is unavailable or stale, only the bottom bar disappears. Aggregation, precedence, and expiry semantics are defined in [the protocol](docs/protocol.md).
 
 ## CLI
 
@@ -102,11 +104,11 @@ unoq-codex-matrix doctor
 unoq-codex-matrix version
 ```
 
-`status` reports daemon, Router, MCU, and aggregated display state without printing prompts or commands. `demo` cycles through every state. `set` and `off` provide temporary display overrides. Use `doctor` for an end-to-end health check.
+`status` reports daemon, Router, MCU, Codex quota-source, and aggregated display state without printing prompts or commands. `demo` cycles through every state. `set` and `off` provide temporary display overrides. Use `doctor` for an end-to-end health check.
 
 ## Configuration
 
-Runtime configuration lives at `/etc/unoq-codex-matrix/config.json`. The supported keys control brightness, update and heartbeat timing, state expiry, active-session indicators, and log level. Start from [the configuration example](config/config.example.json), then restart the daemon after editing:
+Runtime configuration lives at `/etc/unoq-codex-matrix/config.json`. The supported keys control brightness, update and heartbeat timing, state expiry, active-session indicators, quota display and refresh/stale timing, and log level. Start from [the configuration example](config/config.example.json), then restart the daemon after editing:
 
 ```bash
 sudo systemctl restart unoq-codex-matrix.service
@@ -118,7 +120,7 @@ Invalid or out-of-range values fall back to safe defaults and produce a concise 
 
 The Hook retains only allowlisted lifecycle metadata needed to select and aggregate a display state. Prompt text, response text, reasoning, command contents, file contents, diffs, transcripts, credentials, cookies, and environment variables are not stored or transmitted by this project.
 
-Command text is inspected only in Hook memory to select a coarse activity category and is then discarded. Normal logs omit session identifiers, and the project has no external telemetry. See [Privacy](docs/privacy.md) for the data-flow and retention contract.
+Command text is inspected only in Hook memory to select a coarse activity category and is then discarded. Quota reads use the official Codex app-server; this project does not read authentication files or session JSONL. Normal logs omit session identifiers and app-server error bodies, and the project has no independent external telemetry. See [Privacy](docs/privacy.md) for the data-flow and retention contract.
 
 ## Troubleshooting
 

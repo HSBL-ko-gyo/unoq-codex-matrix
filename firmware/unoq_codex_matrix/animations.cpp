@@ -654,6 +654,28 @@ void addActiveCount(uint8_t frame[kPixelCount], const uint8_t active_count,
   }
 }
 
+void addQuotaBar(uint8_t frame[kPixelCount],
+                 const uint8_t remaining_percent,
+                 const uint8_t brightness) {
+  constexpr uint8_t kQuotaRow = kMatrixHeight - 1;
+  for (uint8_t x = 0; x < kMatrixWidth; ++x) {
+    frame[static_cast<uint16_t>(kQuotaRow) * kMatrixWidth + x] = 0;
+  }
+  const uint8_t bounded = remaining_percent > kMaxQuotaPercent
+                              ? kMaxQuotaPercent
+                              : remaining_percent;
+  const uint8_t segments = bounded == 0
+                               ? 0
+                               : static_cast<uint8_t>(
+                                     (static_cast<uint16_t>(bounded) *
+                                          kMatrixWidth +
+                                      kMaxQuotaPercent - 1u) /
+                                     kMaxQuotaPercent);
+  for (uint8_t x = 0; x < segments; ++x) {
+    setPixel(frame, x, kQuotaRow, lowLevel(brightness));
+  }
+}
+
 void scaleFrameOpacity(uint8_t frame[kPixelCount], const uint8_t opacity_q8) {
   if (opacity_q8 == 255) {
     return;
@@ -730,6 +752,8 @@ void addThinkingTestParticle(const uint16_t x_q8, const uint16_t y_q8,
 void renderAnimation(const StateId state, const uint32_t now_ms,
                      const uint32_t state_entered_ms, const uint8_t brightness,
                      const uint8_t active_count, const bool show_active_count,
+                     const uint8_t quota_remaining_percent,
+                     const bool show_quota_bar,
                      uint8_t frame[kPixelCount]) {
   memset(frame, 0, kPixelCount);
   const uint32_t elapsed_ms = now_ms - state_entered_ms;
@@ -791,6 +815,9 @@ void renderAnimation(const StateId state, const uint32_t now_ms,
   } else if (state == IDLE) {
     scaleFrameOpacity(frame, idleFadeOpacity(elapsed_ms));
   }
+  if (show_quota_bar && state != OFF && state != OFFLINE) {
+    addQuotaBar(frame, quota_remaining_percent, brightness);
+  }
 }
 
 void renderTransition(const StateId from, const StateId to,
@@ -799,6 +826,8 @@ void renderTransition(const StateId from, const StateId to,
                       const uint32_t transition_started_ms,
                       const uint8_t brightness, const uint8_t active_count,
                       const bool show_active_count,
+                      const uint8_t quota_remaining_percent,
+                      const bool show_quota_bar,
                       uint8_t frame[kPixelCount]) {
   const uint32_t elapsed_ms = now_ms - transition_started_ms;
   const uint16_t duration_ms = transitionDurationMs(from, to);
@@ -808,20 +837,23 @@ void renderTransition(const StateId from, const StateId to,
                                     ? transition_started_ms + duration_ms
                                     : transition_started_ms;
     renderAnimation(to, target_now, transition_started_ms, brightness,
-                    active_count, show_active_count, frame);
+                    active_count, show_active_count, quota_remaining_percent,
+                    show_quota_bar, frame);
     return;
   }
 
   uint8_t from_frame[kPixelCount] = {};
   uint8_t to_frame[kPixelCount] = {};
   renderAnimation(from, now_ms, from_state_entered_ms, brightness, active_count,
-                  show_active_count, from_frame);
+                  show_active_count, quota_remaining_percent, false,
+                  from_frame);
   // THINKING advances through its own 420 ms fade while the quiet IDLE core
   // recedes. Exit transitions hold the target's first frame for 210 ms.
   const bool entering_thinking = from == IDLE && to == THINKING;
   const uint32_t target_now = entering_thinking ? now_ms : transition_started_ms;
   renderAnimation(to, target_now, transition_started_ms, brightness,
-                  active_count, show_active_count, to_frame);
+                  active_count, show_active_count, quota_remaining_percent,
+                  false, to_frame);
   const uint8_t to_opacity = static_cast<uint8_t>(
       (static_cast<uint32_t>(elapsed_ms) * 255u) / duration_ms);
   const uint8_t from_opacity = static_cast<uint8_t>(255u - to_opacity);
@@ -841,6 +873,9 @@ void renderTransition(const StateId from, const StateId to,
     frame[index] = combined > kMaxBrightness
                        ? kMaxBrightness
                        : static_cast<uint8_t>(combined);
+  }
+  if (show_quota_bar && to != OFF && to != OFFLINE) {
+    addQuotaBar(frame, quota_remaining_percent, brightness);
   }
 }
 

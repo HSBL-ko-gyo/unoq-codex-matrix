@@ -23,7 +23,7 @@ def test_publish_uses_documented_msgpack_rpc(tmp_path: Path) -> None:
         connection, _ = server.accept()
         unpacker = msgpack.Unpacker(raw=False)
         with connection:
-            while len(methods) < 5:
+            while len(methods) < 6:
                 chunk = connection.recv(4096)
                 if not chunk:
                     return
@@ -32,14 +32,20 @@ def test_publish_uses_documented_msgpack_rpc(tmp_path: Path) -> None:
                     message_type, message_id, method, params = message
                     assert message_type == 0
                     methods.append((method, params))
-                    if method in {"codex_matrix_set_state", "codex_matrix_heartbeat"}:
+                    if method in {
+                        "codex_matrix_set_state",
+                        "codex_matrix_set_quota",
+                        "codex_matrix_heartbeat",
+                    }:
                         result = 1
                     elif method == "codex_matrix_set_brightness":
                         result = 3
                     elif method == "codex_matrix_get_status":
                         result = (1 << 24) | (7 << 16) | (2 << 8) | 3
+                    elif method == "codex_matrix_get_version":
+                        result = (1 << 24) | (0 << 16) | (2 << 8) | 0
                     else:
-                        result = (1 << 24) | (0 << 16) | (1 << 8) | 0
+                        raise AssertionError(method)
                     connection.sendall(msgpack.packb([1, message_id, None, result]))
 
     thread = threading.Thread(target=serve)
@@ -53,20 +59,77 @@ def test_publish_uses_documented_msgpack_rpc(tmp_path: Path) -> None:
             frame_interval_ms=100,
             offline_timeout_s=12,
             show_active_count=True,
+            quota_remaining_percent=42,
+            show_quota_bar=True,
         )
         bridge.close()
     finally:
         thread.join(timeout=2)
         server.close()
     assert [method for method, _ in methods] == [
+        "codex_matrix_get_version",
         "codex_matrix_set_state",
         "codex_matrix_set_brightness",
+        "codex_matrix_set_quota",
         "codex_matrix_heartbeat",
         "codex_matrix_get_status",
-        "codex_matrix_get_version",
     ]
-    assert methods[0][1] == [1, 7, 2, 100, 12_000, 1]
+    assert methods[1][1] == [1, 7, 2, 100, 12_000, 1]
+    assert methods[3][1] == [1, 42, 1]
     assert status.state == State.TESTING
+    assert str(version) == "0.2.0"
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="requires Unix sockets")
+def test_publish_keeps_pre_quota_firmware_compatible(tmp_path: Path) -> None:
+    path = str(tmp_path / "old-router.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+    methods: list[str] = []
+
+    def serve() -> None:
+        connection, _ = server.accept()
+        unpacker = msgpack.Unpacker(raw=False)
+        with connection:
+            while len(methods) < 5:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return
+                unpacker.feed(chunk)
+                for message in unpacker:
+                    _, message_id, method, _ = message
+                    methods.append(method)
+                    if method == "codex_matrix_get_version":
+                        result = (1 << 24) | (0 << 16) | (1 << 8) | 0
+                    elif method == "codex_matrix_get_status":
+                        result = (1 << 24) | (1 << 16) | 3
+                    elif method == "codex_matrix_set_brightness":
+                        result = 3
+                    else:
+                        result = 1
+                    connection.sendall(msgpack.packb([1, message_id, None, result]))
+
+    thread = threading.Thread(target=serve)
+    thread.start()
+    try:
+        bridge = RouterBridge(path, connect_timeout=0.5, response_timeout=0.5)
+        _, version = bridge.publish(
+            State.IDLE,
+            0,
+            brightness=3,
+            frame_interval_ms=100,
+            offline_timeout_s=12,
+            show_active_count=False,
+            quota_remaining_percent=50,
+            show_quota_bar=True,
+        )
+        bridge.close()
+    finally:
+        thread.join(timeout=2)
+        server.close()
+
+    assert "codex_matrix_set_quota" not in methods
     assert str(version) == "0.1.0"
 
 

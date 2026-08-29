@@ -18,12 +18,13 @@ READY、THINKING、TESTING、WAITING、SUCCESS、OFFLINEなど、CodexのLifecyc
 flowchart LR
     Codex["UNO Q Linux上のCodex"] -->|"Lifecycle Hooks"| Hook["fail-openなローカルHook"]
     Hook -->|"Unix datagram"| Daemon["セッション集約daemon"]
+    Daemon <-->|"公式account/rateLimits/read"| AppServer["Codex app-server"]
     Daemon -->|"MessagePack RPC"| Router["Arduino Router"]
     Router --> MCU["STM32U585 firmware"]
     MCU --> Matrix["8×13 LEDマトリクス"]
 ```
 
-Hookは応答を待たず、プライバシーを絞ったイベントを送信します。daemonがアクティブなセッションを集約してRouter接続を管理し、MCU firmwareが選択された状態を描画します。コンポーネントとtrust boundaryの詳細は[アーキテクチャ](docs/architecture.md)を参照してください。
+Hookは応答を待たず、プライバシーを絞ったイベントを送信します。daemonはアクティブなセッションを集約し、Codex app-serverの公式アカウントAPIから残量を取得してRouter接続を管理します。MCU firmwareは選択された状態と残量バーを描画します。コンポーネントとtrust boundaryの詳細は[アーキテクチャ](docs/architecture.md)を参照してください。
 
 ## インストール
 
@@ -61,6 +62,7 @@ sudo ./scripts/install.sh --no-start
 - `Arduino_LED_Matrix`と、firmware flash scriptが固定する`Arduino_RouterBridge` 0.4.3。
 - Python 3.11以降。
 - ユーザーLifecycle Hookに対応するCodex。
+- 残量バーには`account/rateLimits/read`を持つCodex app-server。取得できない場合も状態表示は継続します。
 
 実機で使用したversionは[検証履歴](docs/validation-history.md)に記録しています。
 
@@ -85,7 +87,7 @@ sudo ./scripts/install.sh --no-start
 | 12 | OFFLINE | MCU heartbeat timeout | 切断表示 |
 | 13 | SUBAGENT | subagent動作 | 独立して動くdot |
 
-設定で有効にすると、右上のindicatorが追跡中の並行セッション数を示します。集約、優先順位、期限切れの仕様は[プロトコル](docs/protocol.md)を参照してください。
+最下段の13灯はCodex残量バーです。短期枠と長期枠のうち残量が少ない方を、左から約7.7%ずつ表示します。右上indicatorは残量バーとは独立して追跡中の並行セッション数を示すため、両方を同時に表示できます。残量が未取得または古い場合は最下段のバーだけを消します。集約、優先順位、期限切れの仕様は[プロトコル](docs/protocol.md)を参照してください。
 
 ## CLI
 
@@ -102,11 +104,11 @@ unoq-codex-matrix doctor
 unoq-codex-matrix version
 ```
 
-`status`はpromptやcommandを出力せず、daemon、Router、MCU、集約表示の状態を報告します。`demo`は全状態を順に表示します。`set`と`off`は一時的な表示overrideです。end-to-endの健全性確認には`doctor`を使用します。
+`status`はpromptやcommandを出力せず、daemon、Router、MCU、Codex残量取得、集約表示の状態を報告します。`demo`は全状態を順に表示します。`set`と`off`は一時的な表示overrideです。end-to-endの健全性確認には`doctor`を使用します。
 
 ## 設定
 
-runtime設定は`/etc/unoq-codex-matrix/config.json`にあります。設定keyはbrightness、更新・heartbeat timing、状態の期限、アクティブセッション表示、log levelを制御します。[設定例](config/config.example.json)を基に編集し、daemonを再起動してください。
+runtime設定は`/etc/unoq-codex-matrix/config.json`にあります。設定keyはbrightness、更新・heartbeat timing、状態の期限、アクティブセッション表示、残量バーとその更新・stale timing、log levelを制御します。[設定例](config/config.example.json)を基に編集し、daemonを再起動してください。
 
 ```bash
 sudo systemctl restart unoq-codex-matrix.service
@@ -118,7 +120,7 @@ sudo systemctl restart unoq-codex-matrix.service
 
 Hookは表示状態の選択と集約に必要な、allowlist済みLifecycle metadataだけを保持します。本プロジェクトはprompt本文、response本文、reasoning、command内容、file内容、diff、transcript、credential、Cookie、環境変数を保存・送信しません。
 
-command本文はHook memory内で粗い活動categoryを選ぶためだけに確認し、その後破棄します。通常logにsession identifierを出さず、外部telemetryもありません。data flowと保持契約は[プライバシー](docs/privacy.md)を参照してください。
+command本文はHook memory内で粗い活動categoryを選ぶためだけに確認し、その後破棄します。残量取得は公式Codex app-server経由で行い、このプロジェクト自身は認証fileやsession JSONLを読みません。通常logにsession identifierやapp-serverのerror本文を出さず、プロジェクト独自の外部telemetryもありません。data flowと保持契約は[プライバシー](docs/privacy.md)を参照してください。
 
 ## トラブルシュート
 

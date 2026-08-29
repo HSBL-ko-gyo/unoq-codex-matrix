@@ -84,7 +84,8 @@ constexpr uint16_t transitionDurationMs(const StateId from,
 // buffer; this function performs no dynamic allocation.
 void renderAnimation(StateId state, uint32_t now_ms, uint32_t state_entered_ms,
                      uint8_t brightness, uint8_t active_count,
-                     bool show_active_count, uint8_t frame[kPixelCount]);
+                     bool show_active_count, uint8_t quota_remaining_percent,
+                     bool show_quota_bar, uint8_t frame[kPixelCount]);
 
 // Renders the bounded IDLE -> THINKING and THINKING -> SUCCESS/IDLE
 // crossfades. Urgent states bypass this path in the firmware state machine.
@@ -92,6 +93,7 @@ void renderTransition(StateId from, StateId to, uint32_t now_ms,
                       uint32_t from_state_entered_ms,
                       uint32_t transition_started_ms, uint8_t brightness,
                       uint8_t active_count, bool show_active_count,
+                      uint8_t quota_remaining_percent, bool show_quota_bar,
                       uint8_t frame[kPixelCount]);
 
 }  // namespace unoq_codex_matrix

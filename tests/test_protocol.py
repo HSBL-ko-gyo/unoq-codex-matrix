@@ -83,6 +83,8 @@ def test_firmware_protocol_constants_match_python_wire_abi() -> None:
 
     assert _cpp_state_ids(source) == dict(STATE_IDS) == EXPECTED_STATE_IDS
     assert _cpp_decimal_constant(source, "kProtocolVersion") == PROTOCOL_VERSION == 1
+    assert _cpp_decimal_constant(source, "kFirmwareMinor") == 2
+    assert _cpp_decimal_constant(source, "kMaxQuotaPercent") == 100
 
     width = _cpp_decimal_constant(source, "kMatrixWidth")
     height = _cpp_decimal_constant(source, "kMatrixHeight")

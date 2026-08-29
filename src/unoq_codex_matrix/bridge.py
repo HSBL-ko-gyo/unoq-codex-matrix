@@ -44,6 +44,10 @@ class FirmwareVersion:
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.patch}"
 
+    @property
+    def supports_quota_bar(self) -> bool:
+        return (self.major, self.minor, self.patch) >= (0, 2, 0)
+
 
 @dataclass(frozen=True)
 class RenderMetrics:
@@ -194,6 +198,13 @@ class RouterBridge:
         )
         return self._bounded_int(result, 0, 7, "brightness")
 
+    def set_quota(self, remaining_percent: int, *, visible: bool) -> bool:
+        result = self.request(
+            "codex_matrix_set_quota",
+            [PROTOCOL_VERSION, int(remaining_percent), int(bool(visible))],
+        )
+        return bool(self._bounded_int(result, 0, 1, "set-quota"))
+
     def get_status(self) -> McuStatus:
         packed = self._bounded_int(
             self.request("codex_matrix_get_status"), 0, 0xFFFFFFFF, "status"
@@ -237,9 +248,14 @@ class RouterBridge:
         frame_interval_ms: int,
         offline_timeout_s: float,
         show_active_count: bool,
+        quota_remaining_percent: int | None = None,
+        show_quota_bar: bool = False,
     ) -> tuple[McuStatus, FirmwareVersion]:
         """Publish complete state, then heartbeat, so MCU restarts self-heal."""
 
+        version = self.get_version()
+        if version.protocol_version != PROTOCOL_VERSION:
+            raise RouterError("firmware protocol version mismatch")
         if not self.set_state(
             state,
             active_sessions,
@@ -249,12 +265,20 @@ class RouterBridge:
         ):
             raise RouterError("MCU rejected state")
         self.set_brightness(brightness)
+        if version.supports_quota_bar:
+            remaining = (
+                0 if quota_remaining_percent is None else quota_remaining_percent
+            )
+            if not 0 <= remaining <= 100:
+                raise ValueError("quota remaining percentage is out of range")
+            if not self.set_quota(
+                remaining,
+                visible=show_quota_bar and quota_remaining_percent is not None,
+            ):
+                raise RouterError("MCU rejected quota")
         if not self.heartbeat():
             raise RouterError("MCU rejected heartbeat")
         status = self.get_status()
-        version = self.get_version()
         if status.protocol_version != PROTOCOL_VERSION:
             raise RouterError("MCU protocol version mismatch")
-        if version.protocol_version != PROTOCOL_VERSION:
-            raise RouterError("firmware protocol version mismatch")
         return status, version

@@ -20,15 +20,15 @@ This document describes the v0.1 protocol and implementation. The repository is 
 flowchart TB
     subgraph Inputs["Event sources"]
         Hooks["Lifecycle Hook path<br/>(CodexHooksSource, v0.1)"]
-        AppServer["App Server input<br/>(future, not implemented)"]
         Micro["Codex Micro HID input<br/>(future, not implemented)"]
     end
 
     Hooks --> Normalize["Privacy allow-list + classification"]
-    AppServer -. "not implemented" .-> Normalize
     Micro -. "not implemented" .-> Normalize
     Normalize --> EventSock["/run/unoq-codex-matrix/events.sock<br/>AF_UNIX SOCK_DGRAM"]
     EventSock --> Daemon["unoq-codex-matrixd"]
+    AppServer["Codex app-server<br/>account/rateLimits/read"] <-->|"JSONL stdio"| Quota["Quota source<br/>percentages only"]
+    Quota --> Daemon
     Daemon --> Sessions["Per-session state + dedup + TTL"]
     Sessions --> Global["Priority aggregation"]
     CLI["unoq-codex-matrix CLI"] <-->|"control.sock<br/>AF_UNIX SOCK_STREAM"| Daemon
@@ -41,9 +41,10 @@ flowchart TB
 
 `sources.py` defines a runtime-checkable `EventSource` protocol and the concrete
 `CodexHooksSource`, which owns the bounded Unix datagram receiver. The daemon
-depends on that protocol. v0.1 instantiates only `CodexHooksSource`; future App
-Server or HID implementations would have to satisfy the same boundary and
-privacy policy.
+depends on that protocol. `quota.py` is a separate, read-only account-metadata
+source; it does not observe turns or implement `EventSource`. A future App
+Server event or HID implementation would still have to satisfy the normalized
+event boundary and privacy policy.
 
 ### Hook client
 
@@ -81,14 +82,18 @@ The datagram decoder rejects every unknown field, rather than silently carrying 
 - ignore older per-session events that would roll state backward;
 - expire SUCCESS, transient ERROR, and stale sessions;
 - select one global state across concurrent sessions;
+- poll the official Codex app-server quota method on a background thread and
+  retain only bounded remaining percentages;
 - publish a complete state and heartbeat to the MCU;
 - retry Router access without terminating;
 - serve bounded local CLI requests;
 - handle SIGTERM/SIGINT and remove its sockets.
 
 The supplied service definition runs as `User=arduino`, with
-`NoNewPrivileges`, `PrivateTmp`, an AF_UNIX-only address-family restriction, and
-a systemd-managed runtime directory. The investigated board used a manual
+`NoNewPrivileges`, `PrivateTmp`, AF_UNIX/AF_INET/AF_INET6 restricted address
+families, and a systemd-managed runtime directory. IP families are needed only
+by the child Codex app-server for its official account request. The investigated
+board used a manual
 unprivileged launch because administrative installation access was unavailable.
 
 ### Session aggregation
@@ -125,21 +130,31 @@ not a count of CPU-busy tasks.
 
 The daemon opens only `/var/run/arduino-router.sock`. The official [Arduino Router](https://github.com/arduino/arduino-router) is a MessagePack-RPC star router and supports multiple Linux clients. Direct access to `/dev/ttyHS1` and STM32 `Serial1` is prohibited because those resources belong to the Router.
 
-Every publish sends the complete state, active-session count, animation timing, offline timeout, count-dot option, brightness, and heartbeat. Status and version are read back and protocol version 1 is checked. A transport, timeout, MessagePack, or RPC-envelope failure closes the client connection. A rejected or semantically invalid result is reported without guaranteeing that the persistent socket is closed. In either case the daemon waits two seconds before a later publish attempt and keeps running while the Router or MCU is unavailable.
+Every publish sends the complete state, active-session count, animation timing,
+offline timeout, count-dot option, brightness, quota visibility/percentage when
+firmware supports it, and heartbeat. Status and version are read back and
+protocol version 1 is checked. Firmware before 0.2.0 keeps the original publish
+path and simply omits the quota overlay. A transport, timeout, MessagePack, or
+RPC-envelope failure closes the client connection. A rejected or semantically
+invalid result is reported without guaranteeing that the persistent socket is
+closed. In either case the daemon waits two seconds before a later publish
+attempt and keeps running while the Router or MCU is unavailable.
 
 ### Firmware
 
-Firmware uses `Arduino_LED_Matrix` in 3-bit grayscale mode and `Arduino_RouterBridge`. Five functions are exposed with `Bridge.provide_safe()`:
+Firmware uses `Arduino_LED_Matrix` in 3-bit grayscale mode and `Arduino_RouterBridge`. The following functions are exposed with `Bridge.provide_safe()`:
 
 ```text
 codex_matrix_set_state
 codex_matrix_heartbeat
 codex_matrix_get_status
 codex_matrix_set_brightness
+codex_matrix_set_quota
 codex_matrix_get_version
+codex_matrix_get_render_metrics
 ```
 
-Callbacks perform bounded plain-data updates only. `loop()` applies pending values, checks heartbeat age with unsigned subtraction, chooses OFFLINE when necessary, and draws at the configured 50–150 ms interval. No dynamic allocation or long `delay()` occurs in the animation loop. Normal project brightness is capped at 5 even though the matrix supports grayscale levels 0–7.
+Callbacks perform bounded plain-data updates only. `loop()` applies pending values, checks heartbeat age with unsigned subtraction, chooses OFFLINE when necessary, and draws at the configured 50–150 ms interval. No dynamic allocation or long `delay()` occurs in the animation loop. Normal project brightness is capped at 5 even though the matrix supports grayscale levels 0–7. When current quota data is visible, the bottom row is cleared and redrawn as a left-to-right 13-segment bar after the state animation, so it remains stable through fades and transitions. The upper-right active-session dots remain independently visible.
 
 At boot, firmware renders OFFLINE. A valid state publish also counts as a heartbeat. When heartbeats resume after a timeout or restart, the latest complete publish restores the daemon-selected state.
 
@@ -182,15 +197,18 @@ stateDiagram-v2
 |---|---|---:|---|
 | Codex to Hook stdin | inherited pipe | 64 KiB | Raw only inside one short process |
 | Hook to daemon | AF_UNIX datagram | 4 KiB | Strict normalized allow-list |
+| Daemon to Codex app-server | inherited stdio, JSONL | one response at a time | Read-only rate-limit request; retain percentages only |
+| Codex app-server to OpenAI | app-server-managed HTTPS | Codex-managed | Official account quota request; no project endpoint |
 | CLI to daemon | AF_UNIX stream, JSON line | 8 KiB | Status and manual control only |
 | Daemon to Router | AF_UNIX stream, MessagePack RPC | 4 KiB client buffer | Numeric state/config/status only |
 | Router to MCU | Router-managed transport | Router/Bridge managed | Numeric protocol only |
 
-There is no externally reachable server. Socket modes are `0660` inside a systemd runtime directory with mode `0750`.
+There is no externally reachable server and no project-owned network endpoint.
+Socket modes are `0660` inside a systemd runtime directory with mode `0750`.
 
 ## Event-source extension rule
 
-A future source must output the same privacy-reviewed `NormalizedEvent` and must not broaden daemon responsibilities. App Server observation will be considered only if a second client can observe the same turn without changing the existing server or task. Codex Micro HID remains experimental because its host-selected six-slot colors do not expose Lifecycle event names or detailed tool categories, and v0.1 explicitly excludes HID identity emulation.
+A future event source must output the same privacy-reviewed `NormalizedEvent` and must not broaden daemon responsibilities. The current app-server client reads only account quota metadata; App Server turn observation remains separate and will be considered only if a second client can observe the same turn without changing the existing server or task. Codex Micro HID remains experimental because its host-selected six-slot colors do not expose Lifecycle event names or detailed tool categories, and v0.1 explicitly excludes HID identity emulation.
 
 ## Real-device evidence and known alpha gaps
 
@@ -217,6 +235,6 @@ The remaining alpha gaps are:
 - human confirmation that every animation is visually distinct, plus demo
   media.
 
-App Server attachment remains deliberately out of scope for v0.1 rather than a
-release-validation gap. The pre-project STM32 application was not identifiable
-or backed up.
+App Server turn attachment remains deliberately out of scope for v0.1 rather
+than a release-validation gap. The quota-only account request does not attach
+to turns. The pre-project STM32 application was not identifiable or backed up.

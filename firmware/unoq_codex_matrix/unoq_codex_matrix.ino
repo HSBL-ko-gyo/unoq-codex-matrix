@@ -14,12 +14,15 @@ struct PendingUpdates {
   bool has_invalid_state;
   bool has_heartbeat;
   bool has_brightness;
+  bool has_quota;
   StateId state;
   uint8_t active_count;
   uint8_t brightness;
+  uint8_t quota_remaining_percent;
   uint16_t frame_interval_ms;
   uint32_t offline_timeout_ms;
   bool show_active_count;
+  bool show_quota_bar;
 };
 
 Arduino_LED_Matrix matrix;
@@ -33,6 +36,8 @@ uint8_t brightness = 3;
 uint16_t frame_interval_ms = kDefaultFrameIntervalMs;
 uint32_t offline_timeout_ms = kDefaultOfflineTimeoutMs;
 bool show_active_count = true;
+uint8_t quota_remaining_percent = 0;
+bool show_quota_bar = false;
 bool have_requested_state = false;
 bool have_heartbeat = false;
 bool matrix_ready = false;
@@ -56,6 +61,8 @@ int32_t setStateRpc(int32_t protocol_version, int32_t state,
                     int32_t requested_show_count);
 int32_t heartbeatRpc(int32_t protocol_version);
 int32_t setBrightnessRpc(int32_t protocol_version, int32_t level);
+int32_t setQuotaRpc(int32_t protocol_version, int32_t remaining_percent,
+                    int32_t visible);
 uint32_t getStatusRpc();
 uint32_t getVersionRpc();
 uint32_t getRenderMetricsRpc();
@@ -144,6 +151,13 @@ void applyPendingUpdates(const uint32_t now_ms) {
     last_frame_ms = now_ms - currentFrameIntervalMs(now_ms);
   }
 
+  if (pending.has_quota) {
+    quota_remaining_percent = pending.quota_remaining_percent;
+    show_quota_bar = pending.show_quota_bar;
+    pending.has_quota = false;
+    last_frame_ms = now_ms - currentFrameIntervalMs(now_ms);
+  }
+
   if (pending.has_heartbeat) {
     pending.has_heartbeat = false;
     noteHeartbeat(now_ms);
@@ -219,6 +233,20 @@ int32_t setBrightnessRpc(const int32_t protocol_version, const int32_t level) {
   return effective;
 }
 
+int32_t setQuotaRpc(const int32_t protocol_version,
+                    const int32_t remaining_percent,
+                    const int32_t visible) {
+  if (protocol_version != kProtocolVersion || remaining_percent < 0 ||
+      remaining_percent > kMaxQuotaPercent || (visible != 0 && visible != 1)) {
+    return RPC_REJECTED;
+  }
+  pending.quota_remaining_percent =
+      static_cast<uint8_t>(remaining_percent);
+  pending.show_quota_bar = visible != 0;
+  pending.has_quota = true;
+  return RPC_OK;
+}
+
 uint32_t getStatusRpc() {
   return packStatus(displayed_state, active_count, brightness);
 }
@@ -260,7 +288,7 @@ void setup() {
   state_entered_ms = now_ms;
   last_frame_ms = now_ms - frame_interval_ms;
   renderAnimation(OFFLINE, now_ms, state_entered_ms, brightness, 0, false,
-                  frame);
+                  0, false, frame);
   if (matrix_ready) {
     matrix.draw(frame);
   }
@@ -276,6 +304,8 @@ void setup() {
         Bridge.provide_safe("codex_matrix_get_status", getStatusRpc);
     all_registered &=
         Bridge.provide_safe("codex_matrix_set_brightness", setBrightnessRpc);
+    all_registered &=
+        Bridge.provide_safe("codex_matrix_set_quota", setQuotaRpc);
     all_registered &=
         Bridge.provide_safe("codex_matrix_get_version", getVersionRpc);
     all_registered &= Bridge.provide_safe("codex_matrix_get_render_metrics",
@@ -313,10 +343,12 @@ void loop() {
     if (transition_active) {
       renderTransition(transition_from_state, displayed_state, now_ms,
                        transition_from_entered_ms, transition_started_ms,
-                       brightness, active_count, show_active_count, frame);
+                       brightness, active_count, show_active_count,
+                       quota_remaining_percent, show_quota_bar, frame);
     } else {
       renderAnimation(displayed_state, now_ms, state_entered_ms, brightness,
-                      active_count, show_active_count, frame);
+                      active_count, show_active_count,
+                      quota_remaining_percent, show_quota_bar, frame);
     }
     if (matrix_ready) {
       matrix.draw(frame);

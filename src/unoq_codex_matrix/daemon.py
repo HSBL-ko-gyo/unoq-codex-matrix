@@ -19,6 +19,7 @@ from .bridge import FirmwareVersion, McuStatus, ROUTER_SOCKET, RouterBridge, Rou
 from .control import MAX_CONTROL_MESSAGE, decode_message, encode_message
 from .events import EventError, decode_event
 from .protocol import MAX_EVENT_BYTES, PROTOCOL_VERSION, State
+from .quota import CodexQuotaSource
 from .sources import CodexHooksSource, EventSource
 
 
@@ -38,6 +39,9 @@ class Config:
     transient_error_s: float = 1.5
     stale_session_s: float = 43_200.0
     show_active_count: bool = True
+    show_quota_bar: bool = True
+    quota_refresh_interval_s: float = 60.0
+    quota_stale_after_s: float = 900.0
     log_level: str = "INFO"
 
 
@@ -49,6 +53,8 @@ _RANGES: dict[str, tuple[float, float]] = {
     "success_hold_s": (1, 60),
     "transient_error_s": (0.2, 10),
     "stale_session_s": (60, 604_800),
+    "quota_refresh_interval_s": (30, 3_600),
+    "quota_stale_after_s": (60, 86_400),
 }
 
 
@@ -79,11 +85,12 @@ def load_config(path: str = DEFAULT_CONFIG) -> Config:
             LOG.warning("configuration field %s must be an integer; using default", name)
             continue
         values[name] = value
-    show_count = raw.get("show_active_count", values["show_active_count"])
-    if isinstance(show_count, bool):
-        values["show_active_count"] = show_count
-    else:
-        LOG.warning("invalid configuration field show_active_count; using default")
+    for name in ("show_active_count", "show_quota_bar"):
+        enabled = raw.get(name, values[name])
+        if isinstance(enabled, bool):
+            values[name] = enabled
+        else:
+            LOG.warning("invalid configuration field %s; using default", name)
     log_level = raw.get("log_level", values["log_level"])
     if isinstance(log_level, str) and log_level.upper() in {
         "DEBUG",
@@ -97,6 +104,9 @@ def load_config(path: str = DEFAULT_CONFIG) -> Config:
     if values["offline_timeout_s"] < values["heartbeat_interval_s"] * 2:
         LOG.warning("offline timeout is too short; using default")
         values["offline_timeout_s"] = defaults.offline_timeout_s
+    if values["quota_stale_after_s"] < values["quota_refresh_interval_s"] * 2:
+        LOG.warning("quota stale timeout is too short; using default")
+        values["quota_stale_after_s"] = defaults.quota_stale_after_s
     return Config(**values)
 
 
@@ -112,6 +122,7 @@ class MatrixDaemon:
         control_path: str = CONTROL_SOCKET,
         bridge: RouterBridge | None = None,
         event_source: EventSource | None = None,
+        quota_source: CodexQuotaSource | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         monotonic_ns: Callable[[], int] = time.monotonic_ns,
     ) -> None:
@@ -122,6 +133,11 @@ class MatrixDaemon:
         self.event_source = event_source or CodexHooksSource(event_path)
         self.monotonic = monotonic
         self.monotonic_ns = monotonic_ns
+        self.quota_source = quota_source or CodexQuotaSource(
+            refresh_interval_s=config.quota_refresh_interval_s,
+            stale_after_s=config.quota_stale_after_s,
+            monotonic=monotonic,
+        )
         self.aggregator = SessionAggregator(
             success_hold_s=config.success_hold_s,
             transient_error_s=config.transient_error_s,
@@ -134,7 +150,7 @@ class MatrixDaemon:
         self.running = False
         self.last_hook_monotonic: float | None = None
         self.last_publish_attempt = 0.0
-        self.last_display: tuple[State, int] | None = None
+        self.last_display: tuple[State, int, int | None] | None = None
         self.last_mcu_status: McuStatus | None = None
         self.last_firmware_version: FirmwareVersion | None = None
         self.last_publish_ok = False
@@ -177,6 +193,8 @@ class MatrixDaemon:
         control_sock.listen(16)
         self.control_socket = control_sock
         self.selector.register(control_sock, selectors.EVENT_READ, "listener")
+        if self.config.show_quota_bar:
+            self.quota_source.start()
 
     def close(self) -> None:
         for client in list(self.clients):
@@ -187,6 +205,7 @@ class MatrixDaemon:
             except Exception:
                 pass
         self.event_source.close()
+        self.quota_source.close()
         self.event_socket = None
         for sock in (self.control_socket,):
             if sock is not None:
@@ -318,7 +337,10 @@ class MatrixDaemon:
 
     def _publish(self, *, force: bool = False) -> bool:
         now = self.monotonic()
-        display = self._display_state(now)
+        state, active_sessions = self._display_state(now)
+        quota = self.quota_source.current(now=now) if self.config.show_quota_bar else None
+        quota_remaining = quota.remaining_percent if quota is not None else None
+        display = (state, active_sessions, quota_remaining)
         heartbeat_due = now - self.last_publish_attempt >= self.config.heartbeat_interval_s
         if not force and display == self.last_display and not heartbeat_due:
             return True
@@ -333,6 +355,8 @@ class MatrixDaemon:
                 frame_interval_ms=self.config.frame_interval_ms,
                 offline_timeout_s=self.config.offline_timeout_s,
                 show_active_count=self.config.show_active_count,
+                quota_remaining_percent=quota_remaining,
+                show_quota_bar=quota_remaining is not None,
             )
             self.last_mcu_status = status
             self.last_firmware_version = version
@@ -362,6 +386,7 @@ class MatrixDaemon:
             and mcu_age is not None
             and mcu_age <= self.config.heartbeat_interval_s * 2
         )
+        quota = self.quota_source.current() if self.config.show_quota_bar else None
         response: dict[str, Any] = {
             "ok": True,
             "daemon_status": "running",
@@ -371,11 +396,24 @@ class MatrixDaemon:
             ),
             "current_state": state.name,
             "active_session_count": count,
+            "codex_quota_remaining_percent": (
+                quota.remaining_percent if quota is not None else None
+            ),
+            "codex_quota_source_status": (
+                self.quota_source.status()
+                if self.config.show_quota_bar
+                else "disabled"
+            ),
             "last_hook_event_age_s": self._age(self.last_hook_monotonic),
             "last_mcu_heartbeat_age_s": mcu_age,
             "brightness": self.config.brightness,
             "firmware_version": (
                 str(self.last_firmware_version) if self.last_firmware_version else None
+            ),
+            "firmware_quota_bar_supported": (
+                self.last_firmware_version.supports_quota_bar
+                if self.last_firmware_version
+                else None
             ),
         }
         return response
@@ -399,8 +437,13 @@ class MatrixDaemon:
                 and self.last_firmware_version.protocol_version == PROTOCOL_VERSION
             ),
         }
+        healthy = all(checks.values())
+        if self.config.show_quota_bar:
+            checks["Codex quota source"] = self.quota_source.current() is not None
         response["checks"] = checks
-        response["healthy"] = all(checks.values())
+        # Quota is an optional overlay. Its outage must not turn a healthy
+        # lifecycle/Router/MCU path into a failed installation.
+        response["healthy"] = healthy
         return response
 
     def _handle_control(self, message: dict[str, Any]) -> dict[str, Any]:

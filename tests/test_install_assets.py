@@ -19,6 +19,9 @@ def test_example_config_has_safe_documented_defaults() -> None:
         "transient_error_s": 1.5,
         "stale_session_s": 43200,
         "show_active_count": True,
+        "show_quota_bar": True,
+        "quota_refresh_interval_s": 60,
+        "quota_stale_after_s": 900,
         "log_level": "INFO",
     }
 
@@ -32,12 +35,15 @@ def test_systemd_unit_keeps_required_user_and_hardening() -> None:
         "Type=simple",
         "User=arduino",
         "Group=arduino",
+        "Environment=HOME=/home/arduino",
+        "Environment=PATH=/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin",
         "RuntimeDirectory=unoq-codex-matrix",
         "RuntimeDirectoryMode=0750",
         "Restart=on-failure",
         "RestartSec=2",
         "NoNewPrivileges=true",
         "PrivateTmp=true",
+        "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
         "WantedBy=multi-user.target",
     }
     assert required <= set(unit.splitlines())

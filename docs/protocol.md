@@ -126,6 +126,24 @@ The daemon accepts timestamps no more than five seconds into its future and no o
 
 An older non-duplicate event cannot roll a session back past its last monotonic timestamp.
 
+## Codex quota source
+
+When `show_quota_bar` is enabled, the daemon starts `codex app-server` with its
+default JSONL stdio transport, completes the initialization handshake, and
+periodically sends the
+[official read-only rate-limit request](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#7-rate-limits-chatgpt):
+
+```json
+{"method":"account/rateLimits/read","id":2}
+```
+
+Only `usedPercent` from the `codex` bucket's `primary` and `secondary` windows
+is retained. Remaining percentage is `100 - usedPercent`; when both windows
+exist, the lower remaining value wins. Window names, account identifiers,
+plan, credit balance, reset timestamps, notifications, and error bodies are not
+retained or logged. A missing, malformed, failed, or stale response hides the
+quota bar without affecting lifecycle state observation.
+
 ## Daemon aggregation semantics
 
 The global winner uses this fixed priority, with the newest session update as
@@ -186,6 +204,9 @@ last_hook_event_age_s
 last_mcu_heartbeat_age_s
 brightness
 firmware_version
+codex_quota_remaining_percent
+codex_quota_source_status
+firmware_quota_bar_supported
 ```
 
 `doctor` adds `checks` and `healthy`. No session identifier is returned.
@@ -196,6 +217,12 @@ age of the daemon's most recent successful MCU RPC response; it is not a
 separately persisted heartbeat history. Acceptance of a `set` or `demo` control
 request schedules a daemon override but does not by itself prove the current MCU
 publish succeeded.
+
+`codex_quota_source_status` is `disabled`, `starting`, `available`,
+`unavailable`, or `stale`. The remaining percentage is null unless a current
+snapshot exists. Quota-source health is reported by `doctor`, but it is an
+optional overlay and does not make an otherwise healthy lifecycle/Router/MCU
+path fail the command.
 
 ## Arduino Router MessagePack RPC
 
@@ -255,6 +282,29 @@ Parameters: `[protocol_version, level]`
 
 Result for protocol v1: effective brightness. Firmware clamps it to project range 0..5; the physical 3-bit matrix range is 0..7. A protocol mismatch leaves brightness unchanged; the subsequent heartbeat/version checks make the overall publish fail.
 
+#### `codex_matrix_set_quota`
+
+Firmware 0.2.0 and later exposes this additive protocol-v1 method. Parameters:
+
+```text
+[
+  protocol_version,       # 1
+  remaining_percent,      # 0..100
+  visible                  # 0 or 1
+]
+```
+
+Result: `1` when accepted, `0` when rejected. The daemon reads firmware version
+before publishing and does not call this method on older firmware, preserving
+the pre-quota state path.
+
+When visible, the bottom matrix row is reserved for a left-to-right 13-segment
+bar. Zero percent lights no segment; every non-zero value lights at least one;
+100 percent lights all 13. The renderer uses ceiling division, so one segment
+represents approximately 7.7 percentage points. OFF and OFFLINE omit the bar.
+The upper-right active-session dots are independent and can be shown at the same
+time. If quota is unavailable or stale, the daemon hides only the quota bar.
+
 #### `codex_matrix_get_status`
 
 Parameters: `[]`
@@ -281,7 +331,8 @@ bits 15..8   firmware minor
 bits 7..0    firmware patch
 ```
 
-The initial firmware version is `0.1.0`.
+Firmware `0.1.0` is the initial state-only release; the quota-capable firmware
+is `0.2.0`.
 
 #### `codex_matrix_get_render_metrics`
 
@@ -298,11 +349,15 @@ diagnostic RPC does not change protocol version 1 or any state ID.
 - A valid full state publish or heartbeat marks Linux online.
 - The daemon republishes at the configured heartbeat interval, 3 seconds by default.
 - If unsigned `millis()` elapsed time exceeds the published offline timeout, 12 seconds by default, firmware renders OFFLINE.
-- After Router/daemon recovery, a complete state publish restores state, count, timing, brightness, and heartbeat.
+- After Router/daemon recovery, a complete publish restores state, count,
+  timing, brightness, supported quota overlay, and heartbeat.
 
 ## Versioning rules
 
 - Additive daemon-control status fields may be introduced without changing protocol v1 if old clients can ignore them.
+- Additive MCU RPC methods may be introduced without changing protocol v1 when
+  the daemon detects firmware support before calling them and all existing
+  methods retain their parameters and meaning.
 - Any change to state IDs, datagram field meaning, RPC parameter order, or packed word layout requires a new protocol version.
 - A new state must be added to both Python and C++ with a consistency test before release.
 - Raw Hook schema changes do not alter this wire protocol unless the normalized allow-list changes.

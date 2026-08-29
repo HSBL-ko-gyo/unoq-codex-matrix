@@ -17,13 +17,16 @@ uint8_t* pixels(GuardedFrame& frame) { return frame.data() + 1; }
 
 GuardedFrame renderFrame(StateId state, uint32_t now_ms, uint32_t entered_ms,
                          uint8_t brightness, uint8_t active_count = 0,
-                         bool show_active_count = false) {
+                         bool show_active_count = false,
+                         uint8_t quota_remaining_percent = 0,
+                         bool show_quota_bar = false) {
   GuardedFrame frame;
   frame.fill(0xCC);
   frame.front() = 0xA5;
   frame.back() = 0x5A;
   renderAnimation(state, now_ms, entered_ms, brightness, active_count,
-                  show_active_count, pixels(frame));
+                  show_active_count, quota_remaining_percent, show_quota_bar,
+                  pixels(frame));
   return frame;
 }
 
@@ -75,7 +78,7 @@ GuardedFrame renderTransitionFrame(StateId from, StateId to, uint32_t now_ms,
   frame.front() = 0xA5;
   frame.back() = 0x5A;
   renderTransition(from, to, now_ms, from_entered_ms, transition_started_ms,
-                   brightness, 0, false, pixels(frame));
+                   brightness, 0, false, 0, false, pixels(frame));
   return frame;
 }
 
@@ -431,6 +434,34 @@ int main() {
                   static_cast<uint8_t>(transition % 4), true);
   }
 
+  // The bottom row is a left-to-right 13-segment quota bar. A non-zero
+  // remainder always keeps at least one segment visible, while the legacy
+  // active-session dots remain visible in the upper-right corner.
+  const GuardedFrame quota_empty =
+      renderFrame(IDLE, 1000, 0, 5, 3, true, 0, true);
+  const GuardedFrame quota_one =
+      renderFrame(IDLE, 1000, 0, 5, 3, true, 1, true);
+  const GuardedFrame quota_half =
+      renderFrame(IDLE, 1000, 0, 5, 3, true, 50, true);
+  const GuardedFrame quota_full =
+      renderFrame(IDLE, 1000, 0, 5, 3, true, 100, true);
+  const uint16_t quota_row =
+      1 + static_cast<uint16_t>(kMatrixHeight - 1) * kMatrixWidth;
+  for (uint8_t x = 0; x < kMatrixWidth; ++x) {
+    assert(quota_empty[quota_row + x] == 0);
+    assert(quota_one[quota_row + x] == (x == 0 ? 1 : 0));
+    assert(quota_half[quota_row + x] == (x < 7 ? 1 : 0));
+    assert(quota_full[quota_row + x] == 1);
+  }
+  assert(quota_half[1 + kMatrixWidth - 1] >= 1);
+  assert(quota_half[1 + kMatrixWidth - 2] >= 1);
+  assert(quota_half[1 + kMatrixWidth - 3] >= 1);
+  const GuardedFrame offline_with_quota =
+      renderFrame(OFFLINE, 1000, 0, 5, 0, false, 100, true);
+  const GuardedFrame offline_without_quota =
+      renderFrame(OFFLINE, 1000, 0, 5, 0, false, 0, false);
+  assert(offline_with_quota == offline_without_quota);
+
   // Animation elapsed-time arithmetic must be identical across millis() wrap.
   for (uint8_t state = OFF; state <= SUBAGENT; ++state) {
     GuardedFrame wrapped;
@@ -441,9 +472,9 @@ int main() {
     wrapped.back() = ordinary.back() = 0x5A;
     renderAnimation(static_cast<StateId>(state), 25U,
                     std::numeric_limits<uint32_t>::max() - 24U, 5, 3, true,
-                    pixels(wrapped));
-    renderAnimation(static_cast<StateId>(state), 50U, 0U, 5, 3, true,
-                    pixels(ordinary));
+                    75, true, pixels(wrapped));
+    renderAnimation(static_cast<StateId>(state), 50U, 0U, 5, 3, true, 75,
+                    true, pixels(ordinary));
     assert(wrapped == ordinary);
   }
 
@@ -463,9 +494,9 @@ int main() {
   offline.fill(0);
   invalid.front() = offline.front() = 0xA5;
   invalid.back() = offline.back() = 0x5A;
-  renderAnimation(static_cast<StateId>(255), 1234, 0, 5, 0, false,
+  renderAnimation(static_cast<StateId>(255), 1234, 0, 5, 0, false, 0, false,
                   pixels(invalid));
-  renderAnimation(OFFLINE, 1234, 0, 5, 0, false, pixels(offline));
+  renderAnimation(OFFLINE, 1234, 0, 5, 0, false, 0, false, pixels(offline));
   assert(invalid == offline);
   return 0;
 }

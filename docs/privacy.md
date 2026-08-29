@@ -6,10 +6,12 @@ UNO Q Codex Matrix is a local activity indicator, not a transcript recorder.
 The Hook reduces a Codex lifecycle payload to a fixed allow-list, sends it over a
 local Unix datagram, and immediately exits. The daemon keeps identifiers and
 state only in memory. The MCU receives only a numeric display state, aggregate
-session count, display settings, and heartbeat/version data.
+session count, a bounded remaining-quota percentage, display settings, and
+heartbeat/version data.
 
 There is no public HTTP server, dashboard, MQTT client, analytics service, or
-other network telemetry in v0.1.
+project-owned network endpoint. The optional quota source asks the official
+Codex app-server to perform its normal authenticated account-rate-limit read.
 
 ## Data used
 
@@ -20,7 +22,9 @@ The observer uses only:
 - session, turn, and tool-use identifiers for in-memory aggregation, ordering,
   and duplicate suppression;
 - explicit structured success/failure fields;
-- monotonic event time; and
+- monotonic event time;
+- Codex primary/secondary `usedPercent` values reduced to the most restrictive
+  remaining percentage; and
 - derived state, active-session count, and non-sensitive display settings.
 
 For a shell tool only, the Hook inspects the command string in its own memory to
@@ -49,6 +53,9 @@ The normalized event, daemon state, CLI status, logs, and MCU RPC never include:
 
 The project never reads `~/.codex/auth.json`. Install and diagnostic scripts must
 check only what they need and must never print, copy, or add that file to Git.
+The project also never parses Codex session JSONL. Codex app-server owns account
+authentication and upstream requests; this project communicates with it only
+through initialized JSONL stdio and a read-only quota method.
 
 ## Data flow and retention
 
@@ -57,9 +64,11 @@ flowchart LR
     Raw["Codex Hook JSON<br/>process memory only"] --> Filter["Strict allow-list<br/>classify and discard content"]
     Filter --> Event["Local event datagram<br/>maximum 4 KiB"]
     Event --> Memory["Daemon RAM<br/>session state and dedup keys"]
-    Memory --> RPC["MCU RPC<br/>state + count + timing"]
+    Memory --> RPC["MCU RPC<br/>state + count + quota + timing"]
     RPC --> Matrix["LED pixels"]
     Memory -. "expiry / SessionEnd / restart" .-> Gone["Removed"]
+    AppServer["Codex app-server<br/>rate-limit response"] --> Quota["Keep percentages only"]
+    Quota --> Memory
 ```
 
 - Raw stdin is bounded to 65,536 bytes and is never logged or written to disk.
@@ -75,18 +84,25 @@ flowchart LR
 - All session, completion, deduplication, and tombstone metadata is lost when
   the daemon restarts.
 - MCU RPC carries no session, turn, or tool-use identifier.
+- Quota snapshots contain only primary, secondary, and selected remaining
+  percentages plus a local monotonic update time. A snapshot stops being
+  displayable after `quota_stale_after_s` and all quota state is lost on daemon
+  restart.
 - No database or event-history file is created.
 
 ## Logs and CLI
 
 Normal journal messages are limited to startup, bounded validation warnings,
 Router connectivity, and shutdown/health information. They omit session IDs,
-turn IDs, tool-use IDs, prompts, commands, response content, and raw datagrams.
+turn IDs, tool-use IDs, prompts, commands, response content, raw datagrams, and
+app-server error bodies. Error bodies are
+discarded because an upstream failure can include account-linked response data.
 Debug log level does not enable raw payload recording.
 
 `unoq-codex-matrix status` and `doctor` expose an aggregate state, counts,
-version/health data, and event/RPC ages. They never return an identifier or
-content field. An age value is operational telemetry, not an event history.
+selected remaining percentage, quota-source category, version/health data, and
+event/RPC ages. They never return an identifier or content field. An age value
+is operational telemetry, not an event history.
 
 ## Local access boundaries
 
@@ -96,6 +112,9 @@ content field. An age value is operational telemetry, not an event history.
 - The daemon runs as the unprivileged `arduino` user with
   `NoNewPrivileges=true` and `PrivateTmp=true`.
 - Hook-to-daemon communication never uses TCP/IP.
+- The systemd unit permits AF_INET/AF_INET6 only so the child Codex app-server
+  can perform the official account quota request. The daemon exposes no IP
+  listener.
 - Router communication is local to `/var/run/arduino-router.sock` and contains
   only the display RPC described above.
 
@@ -129,9 +148,10 @@ that cannot be confidently sanitized must be discarded.
 
 ## Future event sources
 
-Only the lifecycle-Hook input path is enabled in v0.1. The daemon's
+Only the lifecycle-Hook event input path is enabled in v0.1. The daemon's
 runtime-checkable `EventSource` protocol is implemented by the concrete
-`CodexHooksSource`. A future App Server or HID source must implement the same
+`CodexHooksSource`. The app-server quota client is account metadata, not an
+event source. A future App Server turn or HID source must implement the same
 bounded transport interface, produce the same reduced internal event, and pass
 the same privacy tests.
 Absence of a Remote Hook is not permission to begin parsing session JSONL or
