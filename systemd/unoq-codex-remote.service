@@ -1,0 +1,19 @@
+# UNOQ_CODEX_REMOTE_SERVICE=1
+[Unit]
+Description=UNO Q Codex Remote Control bootstrap
+Wants=network-online.target
+After=network-online.target
+ConditionPathIsExecutable=/home/arduino/.codex/packages/standalone/current/codex
+
+[Service]
+Type=oneshot
+User=arduino
+Group=arduino
+Environment=HOME=/home/arduino
+Environment=PATH=/home/arduino/.codex/packages/standalone/current:/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/libexec/unoq-codex-remote-recover
+RemainAfterExit=yes
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
