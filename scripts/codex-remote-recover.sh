@@ -84,6 +84,44 @@ recover() {
   return 1
 }
 
+terminate_remote_processes() {
+  remote_pids=$(pgrep -u "$(id -u)" -f 'codex.*app-server.*--remote-control' 2>/dev/null || true)
+  [ -n "$remote_pids" ] || return 0
+
+  for candidate in $remote_pids; do
+    [ -r "/proc/$candidate/cmdline" ] || continue
+    command_line=$(tr '\000' ' ' < "/proc/$candidate/cmdline")
+    case "$command_line" in
+      *codex*app-server*--remote-control*)
+        echo "Stopping unmanaged Codex Remote app-server pid=$candidate."
+        kill -TERM "$candidate" 2>/dev/null || true
+        ;;
+    esac
+  done
+
+  attempts=0
+  while [ "$attempts" -lt 10 ]; do
+    remaining=0
+    for candidate in $remote_pids; do
+      kill -0 "$candidate" 2>/dev/null && remaining=1
+    done
+    [ "$remaining" -eq 0 ] && return 0
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+
+  for candidate in $remote_pids; do
+    [ -r "/proc/$candidate/cmdline" ] || continue
+    command_line=$(tr '\000' ' ' < "/proc/$candidate/cmdline")
+    case "$command_line" in
+      *codex*app-server*--remote-control*)
+        echo "Killing unresponsive unmanaged Codex Remote app-server pid=$candidate." >&2
+        kill -KILL "$candidate" 2>/dev/null || true
+        ;;
+    esac
+  done
+}
+
 if recover; then
   exit 0
 fi
@@ -93,6 +131,7 @@ fi
 # ASH READ may be using separate Codex processes.
 echo "Codex Remote lifecycle recovery failed; cleaning verified stale state."
 "$CODEX_BIN" app-server daemon stop >/dev/null 2>&1 || true
+terminate_remote_processes
 for pid_file in "$app_pid_file" "$updater_pid_file"; do
   if [ -e "$pid_file" ] && ! pid=$(pid_from_file "$pid_file"); then
     rm -f -- "$pid_file"

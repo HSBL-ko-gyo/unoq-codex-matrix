@@ -96,6 +96,7 @@ def test_codex_remote_unit_continuously_monitors_with_memory_headroom() -> None:
         "Type=simple",
         "User=arduino",
         "Environment=CHECK_INTERVAL_SEC=60",
+        "Environment=TIME_SYNC_WAIT_SEC=120",
         "ExecStart=/usr/local/libexec/unoq-codex-remote-monitor",
         "Restart=on-failure",
         "RestartSec=30",
@@ -118,6 +119,15 @@ def test_codex_remote_recovery_is_scoped_and_uses_official_lifecycle() -> None:
     assert '\"pid\"[[:space:]]*:[[:space:]]*' in recover
     assert "[ -S \"$CONTROL_SOCKET\" ]" in recover
     assert re.search(r"^pkill(?:\s|$)", recover, re.MULTILINE) is None
+    assert "terminate_remote_processes" in recover
+    assert "kill -TERM \"$candidate\"" in recover
+
+
+def test_codex_remote_monitor_waits_for_initial_clock_sync() -> None:
+    monitor = (ROOT / "scripts" / "codex-remote-monitor.sh").read_text(encoding="utf-8")
+    assert "NTPSynchronized" in monitor
+    assert "TIME_SYNC_WAIT_SEC" in monitor
+    assert "Waiting up to ${TIME_SYNC_WAIT_SEC}s" in monitor
 
 
 def test_codex_remote_installer_preserves_unrelated_user_services() -> None:

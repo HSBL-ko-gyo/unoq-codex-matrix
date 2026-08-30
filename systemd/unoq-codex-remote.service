@@ -1,8 +1,8 @@
 # UNOQ_CODEX_REMOTE_SERVICE=1
 [Unit]
 Description=UNO Q Codex Remote Control monitor
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target systemd-timesyncd.service
+After=network-online.target systemd-timesyncd.service
 ConditionPathExists=/home/arduino/.codex/packages/standalone/current/codex
 StartLimitIntervalSec=300
 StartLimitBurst=5
@@ -15,6 +15,7 @@ Environment=HOME=/home/arduino
 Environment=CODEX_HOME=/home/arduino/.codex
 Environment=PATH=/home/arduino/.codex/packages/standalone/current/bin:/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=CHECK_INTERVAL_SEC=60
+Environment=TIME_SYNC_WAIT_SEC=120
 ExecStart=/usr/local/libexec/unoq-codex-remote-monitor
 Restart=on-failure
 RestartSec=30
