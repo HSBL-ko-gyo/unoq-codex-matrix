@@ -1,19 +1,30 @@
 # UNOQ_CODEX_REMOTE_SERVICE=1
 [Unit]
-Description=UNO Q Codex Remote Control bootstrap
+Description=UNO Q Codex Remote Control monitor
 Wants=network-online.target
 After=network-online.target
-ConditionPathIsExecutable=/home/arduino/.codex/packages/standalone/current/codex
+ConditionPathExists=/home/arduino/.codex/packages/standalone/current/codex
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
-Type=oneshot
+Type=simple
 User=arduino
 Group=arduino
 Environment=HOME=/home/arduino
-Environment=PATH=/home/arduino/.codex/packages/standalone/current:/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/libexec/unoq-codex-remote-recover
-RemainAfterExit=yes
-TimeoutStartSec=180
+Environment=CODEX_HOME=/home/arduino/.codex
+Environment=PATH=/home/arduino/.codex/packages/standalone/current/bin:/home/arduino/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CHECK_INTERVAL_SEC=60
+ExecStart=/usr/local/libexec/unoq-codex-remote-monitor
+Restart=on-failure
+RestartSec=30
+KillMode=mixed
+TimeoutStopSec=90
+MemoryAccounting=true
+MemoryHigh=1G
+MemoryMax=1536M
+OOMPolicy=continue
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

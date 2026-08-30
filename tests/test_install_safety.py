@@ -57,7 +57,17 @@ def test_installer_probes_a_real_pip_enabled_venv_and_limits_packages() -> None:
 
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="POSIX shell is unavailable")
-@pytest.mark.parametrize("name", ["install.sh", "uninstall.sh", "build-native-hook.sh"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "install.sh",
+        "uninstall.sh",
+        "build-native-hook.sh",
+        "codex-remote-recover.sh",
+        "codex-remote-monitor.sh",
+        "install-codex-remote-service.sh",
+    ],
+)
 def test_shell_scripts_parse(name: str) -> None:
     completed = subprocess.run(
         ["sh", "-n", str(ROOT / "scripts" / name)],

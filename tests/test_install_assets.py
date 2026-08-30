@@ -87,3 +87,41 @@ def test_install_scripts_do_not_contain_forbidden_system_mutations() -> None:
     assert re.search(r"\bchmod\s+777\b", scripts) is None
     assert "/dev/ttyHS1" not in scripts
     assert "auth.json" not in scripts
+
+
+def test_codex_remote_unit_continuously_monitors_with_memory_headroom() -> None:
+    unit = (ROOT / "systemd" / "unoq-codex-remote.service").read_text(encoding="utf-8")
+    required = {
+        "# UNOQ_CODEX_REMOTE_SERVICE=1",
+        "Type=simple",
+        "User=arduino",
+        "Environment=CHECK_INTERVAL_SEC=60",
+        "ExecStart=/usr/local/libexec/unoq-codex-remote-monitor",
+        "Restart=on-failure",
+        "RestartSec=30",
+        "MemoryAccounting=true",
+        "MemoryHigh=1G",
+        "MemoryMax=1536M",
+        "OOMPolicy=continue",
+        "WantedBy=multi-user.target",
+    }
+    assert required <= set(unit.splitlines())
+    assert "RemainAfterExit=yes" not in unit
+
+
+def test_codex_remote_recovery_is_scoped_and_uses_official_lifecycle() -> None:
+    recover = (ROOT / "scripts" / "codex-remote-recover.sh").read_text(encoding="utf-8")
+    assert "app-server daemon version" in recover
+    assert "app-server daemon restart" in recover
+    assert "app-server daemon bootstrap --remote-control" in recover
+    assert "remoteControlEnabled" in recover
+    assert '\"pid\"[[:space:]]*:[[:space:]]*' in recover
+    assert "[ -S \"$CONTROL_SOCKET\" ]" in recover
+    assert re.search(r"^pkill(?:\s|$)", recover, re.MULTILINE) is None
+
+
+def test_codex_remote_installer_preserves_unrelated_user_services() -> None:
+    install = (ROOT / "scripts" / "install-codex-remote-service.sh").read_text(encoding="utf-8")
+    assert "codex-remote-control.service" in install
+    assert "*codex*app-server*--remote-control*" in install
+    assert "ashread" not in install.lower()
