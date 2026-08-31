@@ -465,21 +465,19 @@ int main() {
   assert(offline_with_quota == offline_without_quota);
 
   // WAITING stays entirely between the two reserved indicator rows. The
-  // centered lock must retain its shape when real quota and session overlays
-  // are present.
-  const uint16_t approval_lock_rows[kMatrixHeight] = {
+  // centered question mark must retain its shape when real quota and session
+  // overlays are present.
+  const uint16_t question_mark_rows[kMatrixHeight] = {
       0,
-      (1u << 5) | (1u << 6) | (1u << 7),
-      (1u << 4) | (1u << 8),
-      (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
-          (1u << 7) | (1u << 8) | (1u << 9),
-      (1u << 3) | (1u << 6) | (1u << 9),
-      (1u << 3) | (1u << 6) | (1u << 9),
-      (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
-          (1u << 7) | (1u << 8) | (1u << 9),
+      (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8),
+      (1u << 3) | (1u << 9),
+      (1u << 8) | (1u << 9),
+      (1u << 6) | (1u << 7) | (1u << 8),
+      0,
+      (1u << 6) | (1u << 7),
       0,
   };
-  const GuardedFrame waiting_lock =
+  const GuardedFrame waiting_question =
       renderFrame(WAITING, 0, 0, 7, 0, false, 0, false);
   const GuardedFrame waiting_with_indicators =
       renderFrame(WAITING, 0, 0, 7, 3, true, 50, true);
@@ -488,8 +486,8 @@ int main() {
       const uint16_t index =
           1 + static_cast<uint16_t>(y) * kMatrixWidth + x;
       const uint8_t expected =
-          (approval_lock_rows[y] & (1u << x)) != 0 ? 7 : 0;
-      assert(waiting_lock[index] == expected);
+          (question_mark_rows[y] & (1u << x)) != 0 ? 7 : 0;
+      assert(waiting_question[index] == expected);
       if (y > 0 && y + 1 < kMatrixHeight) {
         assert(waiting_with_indicators[index] == expected);
       }

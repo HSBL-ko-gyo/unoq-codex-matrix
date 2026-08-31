@@ -601,7 +601,7 @@ void renderFlashing(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
 void renderWaiting(uint8_t frame[kPixelCount], const uint32_t elapsed_ms,
                    const uint8_t brightness) {
   const bool bright = ((elapsed_ms / 650) & 1u) == 0;
-  drawGlyph(frame, frames::kApprovalLock,
+  drawGlyph(frame, frames::kQuestionMark,
             bright ? highLevel(brightness) : lowLevel(brightness));
 }
 

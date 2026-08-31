@@ -4,8 +4,8 @@ All notable changes are documented here.
 
 ## [Unreleased]
 
-- Replaced the ambiguous WAITING question mark with a pulsing approval lock
-  contained between the quota and active-session indicator rows.
+- Reworked WAITING as a pulsing six-row question mark contained between the
+  quota and active-session indicator rows.
 - Added a top-row 13-segment Codex quota bar backed by the official app-server
   rate-limit method. It coexists with brighter lower-right active-session dots,
   hides when stale or unavailable, and remains backward compatible with

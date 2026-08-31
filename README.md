@@ -81,7 +81,7 @@ State IDs are a versioned wire ABI shared by Python and C++. This table describe
 | 6 | BUILDING | Recognized build command | Stacking blocks |
 | 7 | TESTING | Recognized test command | Progress-style animation |
 | 8 | FLASHING | Firmware upload command | Falling data streams |
-| 9 | WAITING | Permission request | Pulsing approval lock |
+| 9 | WAITING | Permission request | Pulsing question mark |
 | 10 | SUCCESS | Completed turn | Completion mark |
 | 11 | ERROR | Explicit structured tool failure | Error mark |
 | 12 | OFFLINE | MCU heartbeat timeout | Disconnected indicator |
