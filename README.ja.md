@@ -81,7 +81,7 @@ sudo ./scripts/install.sh --no-start
 | 6 | BUILDING | 認識したbuild command | 積み上がるblock |
 | 7 | TESTING | 認識したtest command | progress表示 |
 | 8 | FLASHING | firmware upload | 流れるdata列 |
-| 9 | WAITING | PermissionRequest | 注意表示 |
+| 9 | WAITING | PermissionRequest | 点滅する承認ロック |
 | 10 | SUCCESS | turn完了 | 完了mark |
 | 11 | ERROR | 明示的な構造化tool failure | error mark |
 | 12 | OFFLINE | MCU heartbeat timeout | 切断表示 |

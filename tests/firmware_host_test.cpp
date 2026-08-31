@@ -464,6 +464,44 @@ int main() {
       renderFrame(OFFLINE, 1000, 0, 5, 0, false, 0, false);
   assert(offline_with_quota == offline_without_quota);
 
+  // WAITING stays entirely between the two reserved indicator rows. The
+  // centered lock must retain its shape when real quota and session overlays
+  // are present.
+  const uint16_t approval_lock_rows[kMatrixHeight] = {
+      0,
+      (1u << 5) | (1u << 6) | (1u << 7),
+      (1u << 4) | (1u << 8),
+      (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
+          (1u << 7) | (1u << 8) | (1u << 9),
+      (1u << 3) | (1u << 6) | (1u << 9),
+      (1u << 3) | (1u << 6) | (1u << 9),
+      (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
+          (1u << 7) | (1u << 8) | (1u << 9),
+      0,
+  };
+  const GuardedFrame waiting_lock =
+      renderFrame(WAITING, 0, 0, 7, 0, false, 0, false);
+  const GuardedFrame waiting_with_indicators =
+      renderFrame(WAITING, 0, 0, 7, 3, true, 50, true);
+  for (uint8_t y = 0; y < kMatrixHeight; ++y) {
+    for (uint8_t x = 0; x < kMatrixWidth; ++x) {
+      const uint16_t index =
+          1 + static_cast<uint16_t>(y) * kMatrixWidth + x;
+      const uint8_t expected =
+          (approval_lock_rows[y] & (1u << x)) != 0 ? 7 : 0;
+      assert(waiting_lock[index] == expected);
+      if (y > 0 && y + 1 < kMatrixHeight) {
+        assert(waiting_with_indicators[index] == expected);
+      }
+    }
+  }
+  for (uint8_t x = 0; x < kMatrixWidth; ++x) {
+    assert(waiting_with_indicators[1 + x] == (x < 7 ? 2 : 0));
+    const uint16_t bottom =
+        1 + static_cast<uint16_t>(kMatrixHeight - 1) * kMatrixWidth + x;
+    assert(waiting_with_indicators[bottom] == (x + 3 >= kMatrixWidth ? 2 : 0));
+  }
+
   // Animation elapsed-time arithmetic must be identical across millis() wrap.
   for (uint8_t state = OFF; state <= SUBAGENT; ++state) {
     GuardedFrame wrapped;

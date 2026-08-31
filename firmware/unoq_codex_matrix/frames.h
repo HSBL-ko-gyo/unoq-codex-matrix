@@ -10,15 +10,19 @@ namespace frames {
 
 // A set bit at position x lights column x. These independent, hand-authored
 // glyphs are deliberately small so animation code can select the intensity.
-static constexpr uint16_t kQuestionMark[kMatrixHeight] = {
-    (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8),
-    (1u << 3) | (1u << 9),
-    (1u << 8) | (1u << 9),
-    (1u << 7) | (1u << 8),
-    (1u << 6) | (1u << 7),
-    (1u << 6),
+// Permission waiting is a centered padlock. Rows 0 and 7 stay empty because
+// they are reserved for the quota bar and active-session indicator.
+static constexpr uint16_t kApprovalLock[kMatrixHeight] = {
     0,
-    (1u << 6),
+    (1u << 5) | (1u << 6) | (1u << 7),
+    (1u << 4) | (1u << 8),
+    (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
+        (1u << 7) | (1u << 8) | (1u << 9),
+    (1u << 3) | (1u << 6) | (1u << 9),
+    (1u << 3) | (1u << 6) | (1u << 9),
+    (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) |
+        (1u << 7) | (1u << 8) | (1u << 9),
+    0,
 };
 
 static constexpr uint16_t kCheckMark[kMatrixHeight] = {
