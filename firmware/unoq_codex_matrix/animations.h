@@ -22,7 +22,7 @@ constexpr uint16_t kIdleFadeInMs = 210;
 constexpr uint16_t kIdleFadeFrameIntervalMs = 32;
 constexpr uint16_t kIdleStaticRefreshIntervalMs = 750;
 constexpr uint8_t kQuotaBlinkThresholdPercent = 10;
-constexpr uint16_t kQuotaBlinkHalfPeriodMs = 500;
+constexpr uint16_t kQuotaBlinkHalfPeriodMs = 700;
 constexpr uint16_t kQuotaBlinkFrameIntervalMs = 100;
 
 constexpr bool shouldBlinkQuota(const bool show_quota_bar,

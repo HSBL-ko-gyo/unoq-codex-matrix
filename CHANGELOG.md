@@ -4,8 +4,9 @@ All notable changes are documented here.
 
 ## [Unreleased]
 
-- Made the quota bar blink at ten percent remaining or below while preserving
-  steady rendering above the warning threshold.
+- Made the quota bar blink at ten percent remaining or below with a relaxed
+  700-millisecond phase while preserving steady rendering above the warning
+  threshold.
 - Reworked WAITING as a pulsing six-row question mark contained between the
   quota and active-session indicator rows.
 - Added a top-row 13-segment Codex quota bar backed by the official app-server

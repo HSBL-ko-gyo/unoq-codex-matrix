@@ -303,7 +303,7 @@ bar. Zero percent lights no segment; every non-zero value lights at least one;
 100 percent lights all 13. The renderer uses ceiling division, so one segment
 represents approximately 7.7 percentage points. OFF and OFFLINE omit the bar.
 From one through ten percent inclusive, the bar alternates between visible and
-dark every 500 milliseconds. Eleven percent and above remains steady.
+dark every 700 milliseconds. Eleven percent and above remains steady.
 The lower-right active-session dots are independent and can be shown at the same
 time. If quota is unavailable or stale, the daemon hides only the quota bar.
 
