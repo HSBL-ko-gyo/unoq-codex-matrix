@@ -662,7 +662,7 @@ void addActiveCount(uint8_t frame[kPixelCount], const uint8_t active_count,
 
 void addQuotaBar(uint8_t frame[kPixelCount],
                  const uint8_t remaining_percent,
-                 const uint8_t brightness) {
+                 const uint8_t brightness, const uint32_t now_ms) {
   constexpr uint8_t kQuotaRow = 0;
   for (uint8_t x = 0; x < kMatrixWidth; ++x) {
     frame[static_cast<uint16_t>(kQuotaRow) * kMatrixWidth + x] = 0;
@@ -677,6 +677,10 @@ void addQuotaBar(uint8_t frame[kPixelCount],
                                           kMatrixWidth +
                                       kMaxQuotaPercent - 1u) /
                                      kMaxQuotaPercent);
+  if (shouldBlinkQuota(true, bounded) &&
+      ((now_ms / kQuotaBlinkHalfPeriodMs) & 1u) != 0) {
+    return;
+  }
   for (uint8_t x = 0; x < segments; ++x) {
     setPixel(frame, x, kQuotaRow, indicatorLevel(brightness));
   }
@@ -822,7 +826,7 @@ void renderAnimation(const StateId state, const uint32_t now_ms,
     scaleFrameOpacity(frame, idleFadeOpacity(elapsed_ms));
   }
   if (show_quota_bar && state != OFF && state != OFFLINE) {
-    addQuotaBar(frame, quota_remaining_percent, brightness);
+    addQuotaBar(frame, quota_remaining_percent, brightness, now_ms);
   }
 }
 
@@ -881,7 +885,7 @@ void renderTransition(const StateId from, const StateId to,
                        : static_cast<uint8_t>(combined);
   }
   if (show_quota_bar && to != OFF && to != OFFLINE) {
-    addQuotaBar(frame, quota_remaining_percent, brightness);
+    addQuotaBar(frame, quota_remaining_percent, brightness, now_ms);
   }
 }
 

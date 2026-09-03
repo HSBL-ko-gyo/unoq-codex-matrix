@@ -26,7 +26,7 @@ enum StateId : uint8_t {
 constexpr uint8_t kProtocolVersion = 1;
 constexpr uint8_t kFirmwareMajor = 0;
 constexpr uint8_t kFirmwareMinor = 2;
-constexpr uint8_t kFirmwarePatch = 3;
+constexpr uint8_t kFirmwarePatch = 4;
 
 constexpr uint8_t kMatrixWidth = 13;
 constexpr uint8_t kMatrixHeight = 8;

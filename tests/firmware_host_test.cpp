@@ -453,6 +453,27 @@ int main() {
     assert(quota_half[quota_row + x] == (x < 7 ? 2 : 0));
     assert(quota_full[quota_row + x] == 2);
   }
+  // Critical-low quota blinks in 500 ms phases. Ten percent is included in
+  // the warning range; eleven percent remains steady across both phases.
+  assert(shouldBlinkQuota(true, 1));
+  assert(shouldBlinkQuota(true, 10));
+  assert(!shouldBlinkQuota(true, 0));
+  assert(!shouldBlinkQuota(true, 11));
+  assert(!shouldBlinkQuota(false, 10));
+  const GuardedFrame quota_ten_on =
+      renderFrame(COMMAND, 499, 0, 5, 0, false, 10, true);
+  const GuardedFrame quota_ten_off =
+      renderFrame(COMMAND, 500, 0, 5, 0, false, 10, true);
+  const GuardedFrame quota_eleven_on =
+      renderFrame(COMMAND, 499, 0, 5, 0, false, 11, true);
+  const GuardedFrame quota_eleven_later =
+      renderFrame(COMMAND, 500, 0, 5, 0, false, 11, true);
+  for (uint8_t x = 0; x < kMatrixWidth; ++x) {
+    assert(quota_ten_on[quota_row + x] == (x < 2 ? 2 : 0));
+    assert(quota_ten_off[quota_row + x] == 0);
+    assert(quota_eleven_on[quota_row + x] == (x < 2 ? 2 : 0));
+    assert(quota_eleven_later[quota_row + x] == (x < 2 ? 2 : 0));
+  }
   const uint16_t count_row =
       1 + static_cast<uint16_t>(kMatrixHeight - 1) * kMatrixWidth;
   assert(quota_half[count_row + kMatrixWidth - 1] >= 2);

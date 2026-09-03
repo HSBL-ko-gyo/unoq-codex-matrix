@@ -21,6 +21,15 @@ constexpr uint16_t kThinkingFadeOutMs = 210;
 constexpr uint16_t kIdleFadeInMs = 210;
 constexpr uint16_t kIdleFadeFrameIntervalMs = 32;
 constexpr uint16_t kIdleStaticRefreshIntervalMs = 750;
+constexpr uint8_t kQuotaBlinkThresholdPercent = 10;
+constexpr uint16_t kQuotaBlinkHalfPeriodMs = 500;
+constexpr uint16_t kQuotaBlinkFrameIntervalMs = 100;
+
+constexpr bool shouldBlinkQuota(const bool show_quota_bar,
+                                const uint8_t remaining_percent) {
+  return show_quota_bar && remaining_percent > 0 &&
+         remaining_percent <= kQuotaBlinkThresholdPercent;
+}
 
 // The production renderer uses the same 16 ms cadence as Arduino's native
 // boot animation.  Other state timing remains daemon-configurable.

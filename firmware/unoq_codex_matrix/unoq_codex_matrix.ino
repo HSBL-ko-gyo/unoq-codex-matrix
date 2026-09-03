@@ -68,18 +68,22 @@ uint32_t getVersionRpc();
 uint32_t getRenderMetricsRpc();
 
 uint16_t currentFrameIntervalMs(const uint32_t now_ms) {
+  uint16_t interval_ms = frame_interval_ms;
   if (transition_active) {
-    return kThinkingFrameIntervalMs;
-  }
-  if (displayed_state == IDLE) {
+    interval_ms = kThinkingFrameIntervalMs;
+  } else if (displayed_state == IDLE) {
     const bool entry_fade_due =
         now_ms - state_entered_ms <= kIdleFadeInMs ||
         last_frame_ms - state_entered_ms < kIdleFadeInMs;
-    return entry_fade_due
-               ? kIdleFadeFrameIntervalMs
-               : kIdleStaticRefreshIntervalMs;
+    interval_ms = entry_fade_due ? kIdleFadeFrameIntervalMs
+                                 : kIdleStaticRefreshIntervalMs;
+  } else {
+    interval_ms = effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
   }
-  return effectiveFrameIntervalMs(displayed_state, frame_interval_ms);
+  return shouldBlinkQuota(show_quota_bar, quota_remaining_percent) &&
+                 interval_ms > kQuotaBlinkFrameIntervalMs
+             ? kQuotaBlinkFrameIntervalMs
+             : interval_ms;
 }
 
 void noteHeartbeat(const uint32_t now_ms) {
