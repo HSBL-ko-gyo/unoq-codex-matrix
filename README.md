@@ -1,5 +1,12 @@
 # UNO Q Codex Matrix
 
+<!-- hsbl-catalog:seo-start -->
+**UNO Q Codex Matrix** — Codexの処理中・待機中と利用枠の目安を、UNO Qの8×13 LEDマトリクスへ出すローカル連携です。画面を見張り続けたくないので作りました。
+
+- [配布版を確認する](https://github.com/HSBL-ko-gyo/unoq-codex-matrix/releases)
+- [日本語の作品紹介を見る](https://github.hsbl-ko-gyo.com/projects/uno-q-codex-matrix/)
+<!-- hsbl-catalog:seo-end -->
+
 Show live OpenAI Codex activity on the Arduino UNO Q onboard 8x13 blue LED matrix.
 
 Codex lifecycle Hooks are observed locally and translated into physical matrix animations without requiring prompts or `AGENTS.md` instructions for LED control.
